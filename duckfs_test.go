@@ -7,7 +7,7 @@ import (
 	"log"
 	"os"
 
-	duckfs "github.com/firetiger-oss/duckdb-gofs"
+	"github.com/firetiger-inc/go-duckfs"
 	"github.com/marcboeker/go-duckdb"
 )
 

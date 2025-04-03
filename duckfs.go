@@ -3,8 +3,8 @@
 package duckfs
 
 // #include <duckdb.h>
-// duckdb_state duckdb_gofs_register_subsystem(duckdb_database, uintptr_t);
-// duckdb_state duckdb_gofs_unregister_subsystem(duckdb_database);
+// duckdb_state duckfs_register_subsystem(duckdb_database, uintptr_t);
+// duckdb_state duckfs_unregister_subsystem(duckdb_database);
 import "C"
 import (
 	"fmt"
@@ -84,7 +84,7 @@ func duckdbConnectorDatabase(c *duckdb.Connector) C.duckdb_database {
 
 func duckdbConnectorRegisterFS(c *duckdb.Connector, fsys fs.FS) (int32, error) {
 	id := globalFsys.register(fsys)
-	if status := C.duckdb_gofs_register_subsystem(duckdbConnectorDatabase(c), C.uintptr_t(id)); status != 0 {
+	if status := C.duckfs_register_subsystem(duckdbConnectorDatabase(c), C.uintptr_t(id)); status != 0 {
 		globalFsys.unregister(id)
 		return 0, fmt.Errorf("gofs_register: duckdb error: %d", status)
 	}
@@ -92,15 +92,15 @@ func duckdbConnectorRegisterFS(c *duckdb.Connector, fsys fs.FS) (int32, error) {
 }
 
 func duckdbConnectorUnregisterFS(c *duckdb.Connector, id int32) error {
-	if status := C.duckdb_gofs_unregister_subsystem(duckdbConnectorDatabase(c)); status != 0 {
+	if status := C.duckfs_unregister_subsystem(duckdbConnectorDatabase(c)); status != 0 {
 		return fmt.Errorf("gofs_unregister: duckdb error: %d", status)
 	}
 	globalFsys.unregister(id)
 	return nil
 }
 
-//export duckdb_gofs_file_open
-func duckdb_gofs_file_open(id C.int, path *C.char) C.int {
+//export duckfs_file_open
+func duckfs_file_open(id C.int, path *C.char) C.int {
 	fsys, ok := globalFsys.lookup(int32(id))
 	if !ok {
 		return -1
@@ -112,8 +112,8 @@ func duckdb_gofs_file_open(id C.int, path *C.char) C.int {
 	return C.int(globalFiles.register(f))
 }
 
-//export duckdb_gofs_file_close
-func duckdb_gofs_file_close(id C.int) C.int {
+//export duckfs_file_close
+func duckfs_file_close(id C.int) C.int {
 	f, ok := globalFiles.unregister(int32(id))
 	if !ok {
 		return -1
@@ -122,8 +122,8 @@ func duckdb_gofs_file_close(id C.int) C.int {
 	return 0
 }
 
-//export duckdb_gofs_file_size
-func duckdb_gofs_file_size(id C.int) C.int64_t {
+//export duckfs_file_size
+func duckfs_file_size(id C.int) C.int64_t {
 	f, ok := globalFiles.lookup(int32(id))
 	if !ok {
 		return -1
@@ -135,8 +135,8 @@ func duckdb_gofs_file_size(id C.int) C.int64_t {
 	return C.int64_t(s.Size())
 }
 
-//export duckdb_gofs_file_read_at
-func duckdb_gofs_file_read_at(id C.int, buf unsafe.Pointer, size, off C.int64_t) C.int64_t {
+//export duckfs_file_read_at
+func duckfs_file_read_at(id C.int, buf unsafe.Pointer, size, off C.int64_t) C.int64_t {
 	f, ok := globalFiles.lookup(int32(id))
 	if !ok {
 		return -1
@@ -153,8 +153,8 @@ func duckdb_gofs_file_read_at(id C.int, buf unsafe.Pointer, size, off C.int64_t)
 	return C.int64_t(n)
 }
 
-//export duckdb_gofs_file_read
-func duckdb_gofs_file_read(id C.int, buf unsafe.Pointer, size C.int64_t) C.int64_t {
+//export duckfs_file_read
+func duckfs_file_read(id C.int, buf unsafe.Pointer, size C.int64_t) C.int64_t {
 	f, ok := globalFiles.lookup(int32(id))
 	if !ok {
 		return -1
@@ -167,8 +167,8 @@ func duckdb_gofs_file_read(id C.int, buf unsafe.Pointer, size C.int64_t) C.int64
 	return C.int64_t(n)
 }
 
-//export duckdb_gofs_file_seek
-func duckdb_gofs_file_seek(id C.int, off C.int64_t, whence int) C.int64_t {
+//export duckfs_file_seek
+func duckfs_file_seek(id C.int, off C.int64_t, whence int) C.int64_t {
 	f, ok := globalFiles.lookup(int32(id))
 	if !ok {
 		return -1

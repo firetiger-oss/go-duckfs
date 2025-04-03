@@ -1,4 +1,4 @@
-# duckdb-gofs
+# go-duckfs
 DuckDB virtual file system based on io/fs
 
 ## Motivation

@@ -1,4 +1,4 @@
-module github.com/firetiger-oss/duckdb-gofs
+module github.com/firetiger-inc/go-duckfs
 
 go 1.24.0
 

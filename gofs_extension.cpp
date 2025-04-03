@@ -8,17 +8,17 @@
 #include <gofs_extension.hpp>
 
 extern "C" {
-  int duckdb_gofs_file_open(int id, const char *path);
+  int duckfs_file_open(int id, const char *path);
 
-  int duckdb_gofs_file_close(int id);
+  int duckfs_file_close(int id);
 
-  int64_t duckdb_gofs_file_size(int id);
+  int64_t duckfs_file_size(int id);
 
-  int64_t duckdb_gofs_file_read_at(int id, void *buf, int64_t size, int64_t off);
+  int64_t duckfs_file_read_at(int id, void *buf, int64_t size, int64_t off);
 
-  int64_t duckdb_gofs_file_read(int id, void *buf, int64_t size);
+  int64_t duckfs_file_read(int id, void *buf, int64_t size);
 
-  int64_t duckdb_gofs_file_seek(int id, int64_t off, int whence);
+  int64_t duckfs_file_seek(int id, int64_t off, int whence);
 }
 
 namespace duckdb {
@@ -41,7 +41,7 @@ namespace duckdb {
 
     void Close() override {
       if (this->id >= 0) {
-	duckdb_gofs_file_close(this->id);
+	duckfs_file_close(this->id);
 	this->id = -1;
       }
     }
@@ -78,7 +78,7 @@ namespace duckdb {
     }
 
     unique_ptr<FileHandle> OpenFile(const string &path, FileOpenFlags flags, optional_ptr<FileOpener> opener = nullptr) override {
-      auto id = duckdb_gofs_file_open(this->id, path.c_str());
+      auto id = duckfs_file_open(this->id, path.c_str());
       if (id < 0) {
 	throw IOException("duckdb failed to open file: " + path);
       }
@@ -87,7 +87,7 @@ namespace duckdb {
 
     int64_t GetFileSize(FileHandle &handle) override {
       auto f = dynamic_cast<GoFileHandle*>(&handle);
-      auto size = duckdb_gofs_file_size(f->id);
+      auto size = duckfs_file_size(f->id);
       if (size < 0) {
 	throw IOException("duckdb failed to get file size: "  + handle.GetPath());
       }
@@ -96,7 +96,7 @@ namespace duckdb {
 
     void Read(FileHandle &handle, void *buf, int64_t size, idx_t off) override {
       auto f = dynamic_cast<GoFileHandle*>(&handle);
-      auto n = duckdb_gofs_file_read_at(f->id, buf, size, off);
+      auto n = duckfs_file_read_at(f->id, buf, size, off);
       if (n < 0) {
 	throw IOException("duckdb failed to read file at location: " + handle.GetPath());
       }
@@ -107,7 +107,7 @@ namespace duckdb {
 
     int64_t Read(FileHandle &handle, void *buf, int64_t size) override {
       auto f = dynamic_cast<GoFileHandle*>(&handle);
-      auto n = duckdb_gofs_file_read(f->id, buf, size);
+      auto n = duckfs_file_read(f->id, buf, size);
       if (n < 0) {
 	throw IOException("duckdb failed to read file: " + handle.GetPath());
       }
@@ -116,7 +116,7 @@ namespace duckdb {
 
     void Seek(FileHandle &handle, idx_t off) override {
       auto f = dynamic_cast<GoFileHandle*>(&handle);
-      auto n = duckdb_gofs_file_seek(f->id, off, GOFS_SEEK_SET);
+      auto n = duckfs_file_seek(f->id, off, GOFS_SEEK_SET);
       if (n < 0) {
 	throw IOException("duckdb failed to seek to new file position: " + handle.GetPath());
       }
@@ -124,7 +124,7 @@ namespace duckdb {
 
     void Reset(FileHandle &handle) override {
       auto f = dynamic_cast<GoFileHandle*>(&handle);
-      auto n = duckdb_gofs_file_seek(f->id, 0, GOFS_SEEK_SET);
+      auto n = duckfs_file_seek(f->id, 0, GOFS_SEEK_SET);
       if (n < 0) {
 	throw IOException("duckdb failed to reset file seek position: " + handle.GetPath());
       }
@@ -132,7 +132,7 @@ namespace duckdb {
 
     idx_t SeekPosition(FileHandle &handle) override {
       auto f = dynamic_cast<GoFileHandle*>(&handle);
-      auto n = duckdb_gofs_file_seek(f->id, 0, GOFS_SEEK_CUR);
+      auto n = duckfs_file_seek(f->id, 0, GOFS_SEEK_CUR);
       if (n < 0) {
 	throw IOException("duckdb failed get current file seek position: " + handle.GetPath());
       }
@@ -169,7 +169,7 @@ extern "C" {
     return duckdb::DuckDB::LibraryVersion();
   }
 
-  duckdb_state duckdb_gofs_register_subsystem(duckdb_database database, int id) {
+  duckdb_state duckfs_register_subsystem(duckdb_database database, int id) {
     if (!database || id < 0) {
       return DuckDBError;
     }
@@ -183,7 +183,7 @@ extern "C" {
     return DuckDBSuccess;
   }
 
-  duckdb_state duckdb_gofs_unregister_subsystem(duckdb_database database) {
+  duckdb_state duckfs_unregister_subsystem(duckdb_database database) {
     if (!database) {
       return DuckDBError;
     }
