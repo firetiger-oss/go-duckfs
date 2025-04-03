@@ -2,10 +2,7 @@ module github.com/firetiger-oss/duckdb-gofs
 
 go 1.24.0
 
-require (
-	github.com/achille-roussel/sqlrange v1.0.0
-	github.com/marcboeker/go-duckdb v1.8.5
-)
+require github.com/marcboeker/go-duckdb v1.8.5
 
 require (
 	github.com/apache/arrow-go/v18 v18.1.0 // indirect

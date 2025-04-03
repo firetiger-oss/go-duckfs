@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 
-	"github.com/achille-roussel/sqlrange"
 	duckfs "github.com/firetiger-oss/duckdb-gofs"
 	"github.com/marcboeker/go-duckdb"
 )
@@ -28,18 +27,20 @@ func Example() {
 	db := sql.OpenDB(c)
 	defer db.Close()
 
-	type Row struct {
+	var row struct {
 		Timestamp      int64  `sql:"timestamp"`
 		ChangeID       int64  `sql:"change_id"`
 		InstrumentName string `sql:"instrument_name"`
 	}
 
-	for r, err := range sqlrange.Query[Row](db,
+	if err := db.QueryRow(
 		`SELECT timestamp, change_id, instrument_name, FROM read_parquet('example.parquet')`,
-	) {
-		if err != nil {
-			log.Fatal(err)
-		}
-		fmt.Printf("%+v\n", r)
+	).Scan(&row.Timestamp, &row.ChangeID, &row.InstrumentName); err != nil {
+		log.Fatal(err)
 	}
+
+	fmt.Printf("%+v\n", row)
+
+	// Output:
+	// {Timestamp:1735251109024 ChangeID:83653413002 InstrumentName:BTC-28DEC24-99000-C}
 }
