@@ -10,7 +10,7 @@ clients for cloud storage.
 
 ## Building
 The package requires C++ symbols that are not present in the go-duckdb static
-buildd. If you installed DuckDB on a local workstation, the simplest way to
+build. If you installed DuckDB on a local workstation, the simplest way to
 build this package is to use a dynamically linked version of DuckDB installed
 on the workstation.
 
