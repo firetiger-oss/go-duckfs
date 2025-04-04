@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"testing"
@@ -13,12 +14,8 @@ import (
 )
 
 func Example() {
-	c, err := duckdb.NewConnector("", func(driver.ExecerContext) error { return nil })
+	c, err := duckfs.Open("", nil, os.DirFS("testdata"))
 	if err != nil {
-		log.Fatal(err)
-	}
-
-	if err := duckfs.Register(c, os.DirFS("testdata")); err != nil {
 		log.Fatal(err)
 	}
 
@@ -43,28 +40,41 @@ func Example() {
 	// {Timestamp:1735251109024 ChangeID:83653413002 InstrumentName:BTC-28DEC24-99000-C}
 }
 
-func TestRegisterOverride(t *testing.T) {
+func TestNew(t *testing.T) {
 	c, err := duckdb.NewConnector("", func(driver.ExecerContext) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if err := duckfs.Register(c, os.DirFS("testdata/folder-1")); err != nil {
-		t.Fatal(err)
-	}
-	if err := duckfs.Register(c, os.DirFS("testdata/folder-2")); err != nil {
-		t.Fatal(err)
+	test := func(want string) func(*duckfs.Connector) {
+		return func(f *duckfs.Connector) {
+			db := sql.OpenDB(f)
+			defer db.Close()
+
+			var got string
+			if err := db.QueryRow(`SELECT message from read_csv('database.csv')`).Scan(&got); err != nil {
+				t.Fatal(err)
+			}
+
+			if got != want {
+				t.Errorf("virtual file system override did not work: %q != %q", got, want)
+			}
+		}
 	}
 
-	db := sql.OpenDB(c)
-	defer db.Close()
+	with(t, c, os.DirFS("testdata/folder-1"), test("hello"))
+	with(t, c, os.DirFS("testdata/folder-2"), test("world"))
+}
 
-	var msg string
-	if err := db.QueryRow(`SELECT message from read_csv('database.csv')`).Scan(&msg); err != nil {
+func with(t *testing.T, c *duckdb.Connector, fsys fs.FS, fn func(*duckfs.Connector)) {
+	f, err := duckfs.New(c, fsys)
+	if err != nil {
 		t.Fatal(err)
 	}
-
-	if msg != "world" {
-		t.Errorf("virtual file system override did not work: %q", msg)
-	}
+	defer func() {
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}()
+	fn(f)
 }

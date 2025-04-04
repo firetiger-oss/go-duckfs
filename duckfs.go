@@ -5,11 +5,12 @@ package duckfs
 // #include <gofs_extension.hpp>
 import "C"
 import (
+	"context"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"runtime"
 	"sync"
 	"unsafe"
 
@@ -162,37 +163,83 @@ func duckfs_file_seek(id C.int, off C.int64_t, whence int) C.int64_t {
 	return C.int64_t(s)
 }
 
-// Register registers a Go filesystem with the DuckDB database.
+// Connector is a type similar to duckdb.Connector, but it manages the
+// lifecycle of a virtual filesystem installed on the underlying DuckDB
+// database.
 //
-// The fs.FS remains the virtual filesystem for the DuckDB database until
-// the connector is closed, Unregister is called, or another call to
-// Register is made to replace it.
-func Register(c *duckdb.Connector, fsys fs.FS) error {
-	id := globalFsys.register(fsys)
-	if status := C.duckfs_register_subsystem(duckdbConnectorDatabase(c), C.int(id)); status != 0 {
-		globalFsys.unregister(id)
-		return fmt.Errorf("duckdb error when attempting to register a virtual file system: %d", status)
+// https://pkg.go.dev/github.com/marcboeker/go-duckdb#Connector
+type Connector struct {
+	conn *duckdb.Connector
+	own  bool
+	fsys int32
+	once sync.Once
+}
+
+func (c *Connector) Close() error {
+	var err1 error
+	var err2 error
+
+	c.once.Do(func() {
+		if status := C.duckfs_unregister_subsystem(duckdbConnectorDatabase(c.conn)); status != 0 {
+			err1 = fmt.Errorf("duckdb error when attempting to unregister a virtual file system: %d", status)
+		}
+		globalFsys.unregister(c.fsys)
+	})
+
+	if c.own {
+		err2 = c.conn.Close()
 	}
-	runtime.AddCleanup(c, unregister, id)
-	return nil
+
+	return errors.Join(err1, err2)
 }
 
-func unregister(id int32) {
-	globalFsys.unregister(id)
+func (c *Connector) Connect(ctx context.Context) (driver.Conn, error) {
+	return c.conn.Connect(ctx)
 }
 
-// Unregister removes the virtual filesystem backing a DuckDB database.
-func Unregister(c *duckdb.Connector) error {
-	if status := C.duckfs_unregister_subsystem(duckdbConnectorDatabase(c)); status != 0 {
-		return fmt.Errorf("duckdb error when attempting to unregister a virtual file system: %d", status)
+func (c *Connector) Driver() driver.Driver {
+	return c.conn.Driver()
+}
+
+// Open constructs a DuckDB connector that uses the provided filesystem as the
+// virtual filesystem for the DuckDB database.
+//
+// The returned connector must be explicitly closed to avoid leaking resources,
+// unless passed to sql.OpenDB, which takes ownership of the connector and
+// closes it when sql.DB.Close is called.
+//
+// https://pkg.go.dev/github.com/marcboeker/go-duckdb#NewConnector
+func Open(dsn string, connInitFn func(execer driver.ExecerContext) error, fsys fs.FS) (*Connector, error) {
+	c, err := duckdb.NewConnector(dsn, connInitFn)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	x, err := New(c, fsys)
+	if err != nil {
+		c.Close()
+		return nil, err
+	}
+	x.own = true
+	return x, nil
 }
 
-type connector struct { // same memory layout as duckdb.Connector
+// New constructs a Connector that wraps the given DuckDB connector.
+//
+// The returned Connector does not take ownership of c, so the caller remains
+// responsible for closing it to avoid leaking resources.
+func New(c *duckdb.Connector, fsys fs.FS) (*Connector, error) {
+	f := globalFsys.register(fsys)
+	if status := C.duckfs_register_subsystem(duckdbConnectorDatabase(c), C.int(f)); status != 0 {
+		globalFsys.unregister(f)
+		return nil, fmt.Errorf("duckdb error when attempting to register a virtual file system: %d", status)
+	}
+	return &Connector{conn: c, fsys: f}, nil
+}
+
+type duckdbConnector struct { // same memory layout as duckdb.Connector
 	database C.duckdb_database
 }
 
 func duckdbConnectorDatabase(c *duckdb.Connector) C.duckdb_database {
-	return (*connector)(unsafe.Pointer(c)).database
+	return (*duckdbConnector)(unsafe.Pointer(c)).database
 }

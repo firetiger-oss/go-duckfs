@@ -34,18 +34,13 @@ go test -tags=duckdb_use_lib
 ```
 
 ## Usage
-The library has a single function to register the Go virtual file system on
-a DuckDB connector. Programs must create the connector independently before
-constructing a `database/sql` connection to install the file system, for
-example:
+The package exposes functions to create connectors for DuckDB instances with
+a `fs.FS` as virtual file system, which can then be used to create a `sql.DB`,
+for example:
 
 ```go
-c, err := duckdb.NewConnector("", func(driver.ExecerContext) error { return nil })
+c, err := duckfs.Open("", nil, os.DirFS("testdata"))
 if err != nil {
-	log.Fatal(err)
-}
-
-if err := duckfs.Register(c, os.DirFS("testdata")); err != nil {
 	log.Fatal(err)
 }
 
