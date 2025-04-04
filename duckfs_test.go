@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"testing"
 
 	"github.com/firetiger-inc/go-duckfs"
 	"github.com/marcboeker/go-duckdb"
@@ -16,13 +17,10 @@ func Example() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer c.Close()
 
-	fs, err := duckfs.Register(c, os.DirFS("testdata"))
-	if err != nil {
+	if err := duckfs.Register(c, os.DirFS("testdata")); err != nil {
 		log.Fatal(err)
 	}
-	defer fs.Close()
 
 	db := sql.OpenDB(c)
 	defer db.Close()
@@ -43,4 +41,30 @@ func Example() {
 
 	// Output:
 	// {Timestamp:1735251109024 ChangeID:83653413002 InstrumentName:BTC-28DEC24-99000-C}
+}
+
+func TestRegisterOverride(t *testing.T) {
+	c, err := duckdb.NewConnector("", func(driver.ExecerContext) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := duckfs.Register(c, os.DirFS("testdata/folder-1")); err != nil {
+		t.Fatal(err)
+	}
+	if err := duckfs.Register(c, os.DirFS("testdata/folder-2")); err != nil {
+		t.Fatal(err)
+	}
+
+	db := sql.OpenDB(c)
+	defer db.Close()
+
+	var msg string
+	if err := db.QueryRow(`SELECT message from read_csv('database.csv')`).Scan(&msg); err != nil {
+		t.Fatal(err)
+	}
+
+	if msg != "world" {
+		t.Errorf("virtual file system override did not work: %q", msg)
+	}
 }

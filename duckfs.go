@@ -2,14 +2,14 @@
 // standard library's filesystem interface (io/fs).
 package duckfs
 
-// #include <duckdb.h>
-// duckdb_state duckfs_register_subsystem(duckdb_database, uintptr_t);
-// duckdb_state duckfs_unregister_subsystem(duckdb_database);
+// #include <gofs_extension.hpp>
 import "C"
 import (
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"runtime"
 	"sync"
 	"unsafe"
 
@@ -74,31 +74,6 @@ var (
 	globalFiles filemap[fs.File]
 )
 
-type connector struct {
-	database C.duckdb_database
-}
-
-func duckdbConnectorDatabase(c *duckdb.Connector) C.duckdb_database {
-	return (*connector)(unsafe.Pointer(c)).database
-}
-
-func duckdbConnectorRegisterFS(c *duckdb.Connector, fsys fs.FS) (int32, error) {
-	id := globalFsys.register(fsys)
-	if status := C.duckfs_register_subsystem(duckdbConnectorDatabase(c), C.uintptr_t(id)); status != 0 {
-		globalFsys.unregister(id)
-		return 0, fmt.Errorf("gofs_register: duckdb error: %d", status)
-	}
-	return id, nil
-}
-
-func duckdbConnectorUnregisterFS(c *duckdb.Connector, id int32) error {
-	if status := C.duckfs_unregister_subsystem(duckdbConnectorDatabase(c)); status != 0 {
-		return fmt.Errorf("gofs_unregister: duckdb error: %d", status)
-	}
-	globalFsys.unregister(id)
-	return nil
-}
-
 //export duckfs_file_open
 func duckfs_file_open(id C.int, path *C.char) C.int {
 	fsys, ok := globalFsys.lookup(int32(id))
@@ -161,10 +136,13 @@ func duckfs_file_read(id C.int, buf unsafe.Pointer, size C.int64_t) C.int64_t {
 	}
 	buffer := unsafe.Slice((*byte)(buf), size)
 	n, err := f.Read(buffer)
-	if err != nil {
-		return -1
+	if err == nil {
+		return C.int64_t(n)
 	}
-	return C.int64_t(n)
+	if errors.Is(err, io.EOF) && n == 0 {
+		return 0
+	}
+	return -1
 }
 
 //export duckfs_file_seek
@@ -184,32 +162,37 @@ func duckfs_file_seek(id C.int, off C.int64_t, whence int) C.int64_t {
 	return C.int64_t(s)
 }
 
-// RegisteredFS is a the type representing a Go filesystem that has been
-// registered as virtual file system to a DuckDB database.
-type RegisteredFS struct {
-	fs.FS
-
-	dc   *duckdb.Connector
-	id   int32
-	once sync.Once
-}
-
-// Close the registered filesystem. This must be called before the DuckDB
-// database is closed to unregister the virtual file system.
+// Register registers a Go filesystem with the DuckDB database.
 //
-// Close may be called concurrently from multiple goroutines.
-func (f *RegisteredFS) Close() error {
-	f.once.Do(func() { duckdbConnectorUnregisterFS(f.dc, f.id) })
+// The fs.FS remains the virtual filesystem for the DuckDB database until
+// the connector is closed, Unregister is called, or another call to
+// Register is made to replace it.
+func Register(c *duckdb.Connector, fsys fs.FS) error {
+	id := globalFsys.register(fsys)
+	if status := C.duckfs_register_subsystem(duckdbConnectorDatabase(c), C.int(id)); status != 0 {
+		globalFsys.unregister(id)
+		return fmt.Errorf("duckdb error when attempting to register a virtual file system: %d", status)
+	}
+	runtime.AddCleanup(c, unregister, id)
 	return nil
 }
 
-// Register registers a Go filesystem with the DuckDB database. The
-// returned RegisteredFS must be closed before the connector is closed
-// to unregister the virtual file system and free resources.
-func Register(c *duckdb.Connector, fsys fs.FS) (*RegisteredFS, error) {
-	id, err := duckdbConnectorRegisterFS(c, fsys)
-	if err != nil {
-		return nil, err
+func unregister(id int32) {
+	globalFsys.unregister(id)
+}
+
+// Unregister removes the virtual filesystem backing a DuckDB database.
+func Unregister(c *duckdb.Connector) error {
+	if status := C.duckfs_unregister_subsystem(duckdbConnectorDatabase(c)); status != 0 {
+		return fmt.Errorf("duckdb error when attempting to unregister a virtual file system: %d", status)
 	}
-	return &RegisteredFS{FS: fsys, dc: c, id: id}, nil
+	return nil
+}
+
+type connector struct { // same memory layout as duckdb.Connector
+	database C.duckdb_database
+}
+
+func duckdbConnectorDatabase(c *duckdb.Connector) C.duckdb_database {
+	return (*connector)(unsafe.Pointer(c)).database
 }

@@ -44,13 +44,10 @@ c, err := duckdb.NewConnector("", func(driver.ExecerContext) error { return nil 
 if err != nil {
 	log.Fatal(err)
 }
-defer c.Close()
 
-fs, err := duckfs.Register(c, os.DirFS("testdata"))
-if err != nil {
+if err := duckfs.Register(c, os.DirFS("testdata")); err != nil {
 	log.Fatal(err)
 }
-defer fs.Close()
 
 db := sql.OpenDB(c)
 defer db.Close()
