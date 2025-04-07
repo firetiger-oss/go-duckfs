@@ -80,7 +80,13 @@ namespace duckdb {
     unique_ptr<FileHandle> OpenFile(const string &path, FileOpenFlags flags, optional_ptr<FileOpener> opener = nullptr) override {
       auto id = duckfs_file_open(this->id, path.c_str());
       if (id < 0) {
-	throw IOException("duckdb failed to open file: " + path);
+	// This appears to be the right way to report errors opening files,
+	// usually indicating that the file does not exist. In several places,
+	// it causes DuckDB to throw an exception indicating that a null pointer
+	// was being dereferenced (e.g., when reading parquet files). These
+	// errors are handled propertly in the C and Go bindings, and reported
+	// to the callers as Go errors.
+	return nullptr;
       }
       return make_uniq<GoFileHandle>(*this, path, flags, id);
     }

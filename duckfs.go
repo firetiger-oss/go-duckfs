@@ -14,7 +14,7 @@ import (
 	"sync"
 	"unsafe"
 
-	"github.com/marcboeker/go-duckdb"
+	"github.com/marcboeker/go-duckdb/v2"
 )
 
 type filemap[T comparable] struct {
@@ -167,7 +167,7 @@ func duckfs_file_seek(id C.int, off C.int64_t, whence int) C.int64_t {
 // lifecycle of a virtual filesystem installed on the underlying DuckDB
 // database.
 //
-// https://pkg.go.dev/github.com/marcboeker/go-duckdb#Connector
+// https://pkg.go.dev/github.com/marcboeker/go-duckdb/v2#Connector
 type Connector struct {
 	conn *duckdb.Connector
 	own  bool
@@ -208,7 +208,7 @@ func (c *Connector) Driver() driver.Driver {
 // unless passed to sql.OpenDB, which takes ownership of the connector and
 // closes it when sql.DB.Close is called.
 //
-// https://pkg.go.dev/github.com/marcboeker/go-duckdb#NewConnector
+// https://pkg.go.dev/github.com/marcboeker/go-duckdb/v2#NewConnector
 func Open(dsn string, connInitFn func(execer driver.ExecerContext) error, fsys fs.FS) (*Connector, error) {
 	c, err := duckdb.NewConnector(dsn, connInitFn)
 	if err != nil {
@@ -237,6 +237,7 @@ func New(c *duckdb.Connector, fsys fs.FS) (*Connector, error) {
 }
 
 type duckdbConnector struct { // same memory layout as duckdb.Connector
+	_        bool
 	database C.duckdb_database
 }
 

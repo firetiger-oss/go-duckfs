@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/firetiger-inc/go-duckfs"
-	"github.com/marcboeker/go-duckdb"
+	"github.com/marcboeker/go-duckdb/v2"
 )
 
 func Example() {
@@ -77,4 +77,28 @@ func with(t *testing.T, c *duckdb.Connector, fsys fs.FS, fn func(*duckfs.Connect
 		}
 	}()
 	fn(f)
+}
+
+func TestQueryFileNotExist(t *testing.T) {
+	c, err := duckfs.Open("", nil, os.DirFS("whatever"))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	db := sql.OpenDB(c)
+	defer db.Close()
+
+	var row struct {
+		Timestamp      int64  `sql:"timestamp"`
+		ChangeID       int64  `sql:"change_id"`
+		InstrumentName string `sql:"instrument_name"`
+	}
+
+	if err := db.QueryRow(
+		`SELECT timestamp, change_id, instrument_name, FROM read_parquet('example.parquet')`,
+	).Scan(&row.Timestamp, &row.ChangeID, &row.InstrumentName); err == nil {
+		t.Error("no error when file does not exist")
+	} else if _, ok := err.(*duckdb.Error); !ok {
+		t.Errorf("unexpected error type: %T", err)
+	}
 }
