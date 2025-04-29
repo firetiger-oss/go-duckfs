@@ -9,7 +9,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/firetiger-inc/go-duckfs"
+	"github.com/firetiger-oss/go-duckfs"
 	"github.com/marcboeker/go-duckdb/v2"
 )
 
