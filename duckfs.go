@@ -150,7 +150,7 @@ func duckfs_file_read(id C.int, buf unsafe.Pointer, size C.int64_t) C.int64_t {
 	}
 	buffer := unsafe.Slice((*byte)(buf), size)
 	n, err := f.Read(buffer)
-	if err == nil {
+	if n > 0 {
 		return C.int64_t(n)
 	}
 	if errors.Is(err, io.EOF) && n == 0 {
