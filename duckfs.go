@@ -75,6 +75,19 @@ var (
 	globalFiles filemap[fs.File]
 )
 
+//export duckfs_file_exists
+func duckfs_file_exists(id C.int, path *C.char) C.int {
+	fsys, ok := globalFsys.lookup(int32(id))
+	if !ok {
+		return 0
+	}
+	_, err := fs.Stat(fsys, C.GoString(path))
+	if err != nil {
+		return 0
+	}
+	return 1
+}
+
 //export duckfs_file_open
 func duckfs_file_open(id C.int, path *C.char) C.int {
 	fsys, ok := globalFsys.lookup(int32(id))

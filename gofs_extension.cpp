@@ -8,6 +8,8 @@
 #include <gofs_extension.hpp>
 
 extern "C" {
+  int duckfs_file_exists(int id, const char *path);
+
   int duckfs_file_open(int id, const char *path);
 
   int duckfs_file_close(int id);
@@ -73,11 +75,15 @@ namespace duckdb {
       return false;
     }
 
-    vector<string> Glob(const string &path, FileOpener *opener = nullptr) override {
+    bool FileExists(const string &filename, optional_ptr<FileOpener> opener) override {
+      return duckfs_file_exists(this->id, filename.c_str());
+    }
+
+    vector<string> Glob(const string &path, FileOpener *opener) override {
       return {path}; // FIXME
     }
 
-    unique_ptr<FileHandle> OpenFile(const string &path, FileOpenFlags flags, optional_ptr<FileOpener> opener = nullptr) override {
+    unique_ptr<FileHandle> OpenFile(const string &path, FileOpenFlags flags, optional_ptr<FileOpener> opener) override {
       auto id = duckfs_file_open(this->id, path.c_str());
       if (id < 0) {
 	// This appears to be the right way to report errors opening files,
