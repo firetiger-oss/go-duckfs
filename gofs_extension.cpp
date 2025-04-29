@@ -4,8 +4,8 @@
 #ifndef DUCKDB_AMALGAMATION
 #include <duckdb/common/exception.hpp>
 #include <duckdb/common/string_util.hpp>
-#endif
 #include <duckdb/main/extension_util.hpp>
+#endif
 #include <duckdb/main/capi/capi_internal.hpp>
 #include <gofs_extension.hpp>
 
