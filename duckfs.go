@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"sync"
 	"unsafe"
 
@@ -41,8 +42,8 @@ func (m *filemap[T]) register(f T) int32 {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	i := 0
-	for i < len(m.files) && m.files[i] == zero {
+	var i int
+	for i < len(m.files) && m.files[i] != zero {
 		i++
 	}
 
@@ -92,6 +93,7 @@ func duckfs_file_exists(id C.int, path *C.char) C.int {
 func duckfs_file_open(id C.int, path *C.char) C.int {
 	fsys, ok := globalFsys.lookup(int32(id))
 	if !ok {
+		slog.Warn("duckfs_file_open: file system not found", "filesystem", id, "path", C.GoString(path))
 		return -1
 	}
 	f, err := fsys.Open(C.GoString(path))
@@ -105,6 +107,7 @@ func duckfs_file_open(id C.int, path *C.char) C.int {
 func duckfs_file_close(id C.int) C.int {
 	f, ok := globalFiles.unregister(int32(id))
 	if !ok {
+		slog.Warn("duckfs_file_close: file not found", "file", id)
 		return -1
 	}
 	f.Close()
@@ -115,6 +118,7 @@ func duckfs_file_close(id C.int) C.int {
 func duckfs_file_size(id C.int) C.int64_t {
 	f, ok := globalFiles.lookup(int32(id))
 	if !ok {
+		slog.Warn("duckfs_file_size: file not found", "file", id)
 		return -1
 	}
 	s, err := f.Stat()
@@ -128,10 +132,12 @@ func duckfs_file_size(id C.int) C.int64_t {
 func duckfs_file_read_at(id C.int, buf unsafe.Pointer, size, off C.int64_t) C.int64_t {
 	f, ok := globalFiles.lookup(int32(id))
 	if !ok {
+		slog.Warn("duckfs_file_read_at: file not found", "file", id)
 		return -1
 	}
 	r, ok := f.(io.ReaderAt)
 	if !ok {
+		slog.Warn("duckfs_file_read_at: file does not support io.ReaderAt", "file", id)
 		return -1
 	}
 	buffer := unsafe.Slice((*byte)(buf), size)
@@ -146,6 +152,7 @@ func duckfs_file_read_at(id C.int, buf unsafe.Pointer, size, off C.int64_t) C.in
 func duckfs_file_read(id C.int, buf unsafe.Pointer, size C.int64_t) C.int64_t {
 	f, ok := globalFiles.lookup(int32(id))
 	if !ok {
+		slog.Warn("duckfs_file_read: file not found", "file", id)
 		return -1
 	}
 	buffer := unsafe.Slice((*byte)(buf), size)
@@ -163,10 +170,12 @@ func duckfs_file_read(id C.int, buf unsafe.Pointer, size C.int64_t) C.int64_t {
 func duckfs_file_seek(id C.int, off C.int64_t, whence int) C.int64_t {
 	f, ok := globalFiles.lookup(int32(id))
 	if !ok {
+		slog.Warn("duckfs_file_seek: file not found", "file", id)
 		return -1
 	}
 	r, ok := f.(io.Seeker)
 	if !ok {
+		slog.Warn("duckfs_file_seek: file does not support io.Seeker", "file", id)
 		return -1
 	}
 	s, err := r.Seek(int64(off), whence)
