@@ -2,8 +2,11 @@
 // standard library's filesystem interface (io/fs).
 package duckfs
 
+// #cgo CFLAGS:   -I${SRCDIR}/duckdb/v1.2.2/src/include
+// #cgo CXXFLAGS: -I${SRCDIR}/duckdb/v1.2.2/src/include -std=c++17
 // #include <gofs_extension.hpp>
 import "C"
+
 import (
 	"context"
 	"database/sql/driver"

@@ -1,7 +1,7 @@
 #pragma once
 
 #ifdef __cplusplus
-#include <duckdb.hpp>
+#include "duckdb.hpp"
 
 namespace duckdb {
   class GoFSExtension : public Extension {
@@ -14,7 +14,7 @@ namespace duckdb {
 
 extern "C" {
 #else
-#include <duckdb.h>
+#include "duckdb.h"
 #endif // __cplusplus
 
 duckdb_state duckfs_register_subsystem(duckdb_database database, int id);
