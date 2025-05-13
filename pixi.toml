@@ -1,0 +1,11 @@
+[workspace]
+authors = ["Achille Roussel <achille.roussel@gmail.com>"]
+channels = ["conda-forge"]
+name = "go-duckfs"
+platforms = ["linux-64", "linux-aarch64", "osx-64", "osx-arm64"]
+version = "0.1.0"
+
+[tasks]
+
+[dependencies]
+libduckdb = "==1.2.2"
