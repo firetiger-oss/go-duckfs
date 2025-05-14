@@ -17,20 +17,13 @@ build. If you installed DuckDB on a local workstation, the simplest way to
 build this package is to use a dynamically linked version of DuckDB installed
 on the workstation.
 
-For example, when installing LLVM and DuckDB with Homebrew on MacOS:
-
-```
-# ensure the llvm is installed
-export CGO_LDFLAGS="-L/opt/homebrew/opt/llvm/lib/c++ -L/opt/homebrew/opt/llvm/lib/unwind -L/opt/homebrew/lib -lunwind"
-export CGO_CPPFLAGS="-I/opt/homebrew/opt/llvm/include -I/opt/homebrew/include"
-export CGO_CXXFLAGS="-std=c++11"
-```
-
-Then the program must be passed a build tag to dynamically link against DuckDB:
-
+Then the Go program must be compiled using the `duckdb_us_lib` tag to select the
+version of the DuckDB Go bindings suited for dynamic linking, for example:
 ```
 go test -tags=duckdb_use_lib
 ```
+
+https://github.com/marcboeker/go-duckdb?tab=readme-ov-file#linking-a-dynamic-library
 
 ## Testing
 
