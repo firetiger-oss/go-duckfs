@@ -50,7 +50,7 @@ for example:
 ```go
 c, err := duckfs.Open("", nil, os.DirFS("testdata"))
 if err != nil {
- log.Fatal(err)
+	log.Fatal(err)
 }
 
 db := sql.OpenDB(c)
