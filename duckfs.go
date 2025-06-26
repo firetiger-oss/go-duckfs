@@ -26,6 +26,7 @@ type MutableFS interface {
 	fs.FS
 	Create(name string) (fs.File, error)
 	Remove(name string) error
+	Truncate(name string, size int64) error
 }
 
 type filemap[T comparable] struct {
@@ -255,6 +256,50 @@ func duckfs_file_remove(id C.int, path *C.char) C.int {
 	}
 	return 0
 }
+
+//export duckfs_file_truncate
+func duckfs_file_truncate(id C.int, path *C.char, size C.int64_t) C.int {
+	fsys, ok := globalFsys.lookup(int32(id))
+	if !ok {
+		slog.Warn("duckfs_file_truncate: file system not found", "filesystem", id, "path", C.GoString(path))
+		return -1
+	}
+	mfs, ok := fsys.(MutableFS)
+	if !ok {
+		slog.Warn("duckfs_file_truncate: file system does not support file truncation", "filesystem", id, "path", C.GoString(path))
+		return -1
+	}
+	err := mfs.Truncate(C.GoString(path), int64(size))
+	if err != nil {
+		slog.Warn("duckfs_file_truncate: failed to truncate file", "filesystem", id, "path", C.GoString(path), "size", int64(size), "error", err)
+		return -1
+	}
+	return 0
+}
+
+// FileSync is implemented as a no-op in C++, so this export function is not needed
+/*
+//export duckfs_file_sync
+func duckfs_file_sync(id C.int) C.int {
+	file, ok := globalFiles.lookup(int32(id))
+	if !ok {
+		// File not found - this might happen during cleanup, so don't log as warning
+		// Just return success as there's nothing to sync
+		return 0
+	}
+	
+	// Check if the file implements a Sync() error method
+	if syncer, ok := file.(interface{ Sync() error }); ok {
+		err := syncer.Sync()
+		if err != nil {
+			slog.Warn("duckfs_file_sync: failed to sync file", "file", id, "error", err)
+			return -1
+		}
+	}
+	// If the file doesn't implement Sync(), just return success (no-op)
+	return 0
+}
+*/
 
 // Connector is a type similar to duckdb.Connector, but it manages the
 // lifecycle of a virtual filesystem installed on the underlying DuckDB

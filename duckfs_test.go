@@ -45,6 +45,11 @@ func (mfs testMutableFS) Remove(name string) error {
 	return os.Remove(fullPath)
 }
 
+func (mfs testMutableFS) Truncate(name string, size int64) error {
+	fullPath := filepath.Join(string(mfs), name)
+	return os.Truncate(fullPath, size)
+}
+
 // listFilesystemContents returns all files and directories in the filesystem
 func listFilesystemContents(dir string) ([]string, error) {
 	var files []string
@@ -118,7 +123,7 @@ func Example() {
 }
 
 func TestNew(t *testing.T) {
-	c, err := duckdb.NewConnector("", func(driver.ExecerContext) error { return nil })
+	c, err := duckdb.NewConnector("test.db", func(driver.ExecerContext) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,12 +288,7 @@ func TestFileCreateAndWrite(t *testing.T) {
 	tempDir := t.TempDir()
 	mfs := newTestMutableFS(tempDir)
 
-	c, err := duckdb.NewConnector("", func(driver.ExecerContext) error { return nil })
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	connector, err := duckfs.New(c, mfs)
+	connector, err := duckfs.Open("test.db", func(driver.ExecerContext) error { return nil }, mfs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,12 +364,7 @@ func TestFileWriteOperations(t *testing.T) {
 	tempDir := t.TempDir()
 	mfs := newTestMutableFS(tempDir)
 
-	c, err := duckdb.NewConnector("", func(driver.ExecerContext) error { return nil })
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	connector, err := duckfs.New(c, mfs)
+	connector, err := duckfs.Open("test.db", func(driver.ExecerContext) error { return nil }, mfs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,12 +434,7 @@ func TestFileRemoval(t *testing.T) {
 	tempDir := t.TempDir()
 	mfs := newTestMutableFS(tempDir)
 
-	c, err := duckdb.NewConnector("", func(driver.ExecerContext) error { return nil })
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	connector, err := duckfs.New(c, mfs)
+	connector, err := duckfs.Open("test.db", func(driver.ExecerContext) error { return nil }, mfs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -652,12 +642,7 @@ func TestErrorHandling(t *testing.T) {
 	tempDir := t.TempDir()
 	mfs := newTestMutableFS(tempDir)
 
-	c, err := duckdb.NewConnector("", func(driver.ExecerContext) error { return nil })
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	connector, err := duckfs.New(c, mfs)
+	connector, err := duckfs.Open("test.db", func(driver.ExecerContext) error { return nil }, mfs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -695,17 +680,15 @@ func TestErrorHandling(t *testing.T) {
 	}
 }
 
-// TestDuckDBCreateTableBackend tests CREATE TABLE operations using our filesystem as backend
+// TestDuckDBCreateTableBackend tests CREATE TABLE operations using our
+// filesystem as backend.
 func TestDuckDBCreateTableBackend(t *testing.T) {
 	tempDir := t.TempDir()
 	mfs := newTestMutableFS(tempDir)
 
-	c, err := duckdb.NewConnector("", func(driver.ExecerContext) error { return nil })
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	connector, err := duckfs.New(c, mfs)
+	// Use duckfs.Open to create a DuckDB instance with our virtual filesystem
+	dbPath := "test_database.db"
+	connector, err := duckfs.Open(dbPath, func(driver.ExecerContext) error { return nil }, mfs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -805,12 +788,9 @@ func TestDuckDBDropTableBackend(t *testing.T) {
 	tempDir := t.TempDir()
 	mfs := newTestMutableFS(tempDir)
 
-	c, err := duckdb.NewConnector("", func(driver.ExecerContext) error { return nil })
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	connector, err := duckfs.New(c, mfs)
+	// Use duckfs.Open to create a DuckDB instance with our virtual filesystem
+	dbPath := "test_database.db"
+	connector, err := duckfs.Open(dbPath, func(driver.ExecerContext) error { return nil }, mfs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -922,12 +902,9 @@ func TestDuckDBTableBackendFilesystemVerification(t *testing.T) {
 	tempDir := t.TempDir()
 	mfs := newTestMutableFS(tempDir)
 
-	c, err := duckdb.NewConnector("", func(driver.ExecerContext) error { return nil })
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	connector, err := duckfs.New(c, mfs)
+	// Use duckfs.Open to create a DuckDB instance with our virtual filesystem
+	dbPath := "test_database.db"
+	connector, err := duckfs.Open(dbPath, func(driver.ExecerContext) error { return nil }, mfs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1017,17 +994,119 @@ func TestDuckDBTableBackendFilesystemVerification(t *testing.T) {
 	t.Log("✓ Filesystem empty at end")
 }
 
+// TestMutableFSTruncate tests the Truncate functionality specifically
+func TestMutableFSTruncate(t *testing.T) {
+	tempDir := t.TempDir()
+	mfs := newTestMutableFS(tempDir)
+
+	// Test that the mutable filesystem satisfies the MutableFS interface
+	var _ duckfs.MutableFS = mfs
+
+	// Create a file with some content
+	f, err := mfs.Create("truncate_test.txt")
+	if err != nil {
+		t.Fatalf("Failed to create file: %v", err)
+	}
+
+	// Write initial data
+	originalData := []byte("This is a test file with some content that will be truncated.")
+	w, ok := f.(io.Writer)
+	if !ok {
+		t.Fatal("Created file does not implement io.Writer")
+	}
+
+	n, err := w.Write(originalData)
+	if err != nil {
+		t.Fatalf("Failed to write original data: %v", err)
+	}
+	if n != len(originalData) {
+		t.Errorf("Wrote %d bytes, expected %d", n, len(originalData))
+	}
+	f.Close()
+
+	// Verify original file size
+	originalStat, err := os.Stat(filepath.Join(tempDir, "truncate_test.txt"))
+	if err != nil {
+		t.Fatalf("Failed to stat original file: %v", err)
+	}
+	originalSize := originalStat.Size()
+	if originalSize != int64(len(originalData)) {
+		t.Errorf("Original file size %d, expected %d", originalSize, len(originalData))
+	}
+
+	// Test truncating to smaller size
+	newSize := int64(20)
+	err = mfs.Truncate("truncate_test.txt", newSize)
+	if err != nil {
+		t.Fatalf("Failed to truncate file: %v", err)
+	}
+
+	// Verify truncated file size
+	truncatedStat, err := os.Stat(filepath.Join(tempDir, "truncate_test.txt"))
+	if err != nil {
+		t.Fatalf("Failed to stat truncated file: %v", err)
+	}
+	if truncatedStat.Size() != newSize {
+		t.Errorf("Truncated file size %d, expected %d", truncatedStat.Size(), newSize)
+	}
+
+	// Verify truncated content
+	readFile, err := mfs.Open("truncate_test.txt")
+	if err != nil {
+		t.Fatalf("Failed to open truncated file: %v", err)
+	}
+	defer readFile.Close()
+
+	readData := make([]byte, newSize)
+	readN, err := readFile.Read(readData)
+	if err != nil && err != io.EOF {
+		t.Fatalf("Failed to read truncated file: %v", err)
+	}
+
+	if int64(readN) != newSize {
+		t.Errorf("Read %d bytes from truncated file, expected %d", readN, newSize)
+	}
+
+	expectedContent := string(originalData[:newSize])
+	actualContent := string(readData[:readN])
+	if actualContent != expectedContent {
+		t.Errorf("Truncated content %q, expected %q", actualContent, expectedContent)
+	}
+
+	// Test truncating to zero (empty file)
+	err = mfs.Truncate("truncate_test.txt", 0)
+	if err != nil {
+		t.Fatalf("Failed to truncate file to zero: %v", err)
+	}
+
+	emptyStat, err := os.Stat(filepath.Join(tempDir, "truncate_test.txt"))
+	if err != nil {
+		t.Fatalf("Failed to stat empty file: %v", err)
+	}
+	if emptyStat.Size() != 0 {
+		t.Errorf("Empty file size %d, expected 0", emptyStat.Size())
+	}
+
+	// Clean up
+	err = mfs.Remove("truncate_test.txt")
+	if err != nil {
+		t.Fatalf("Failed to remove test file: %v", err)
+	}
+
+	t.Log("✓ Truncate functionality works correctly")
+	t.Log("✓ File can be truncated to smaller size")
+	t.Log("✓ File content is preserved up to truncation point")
+	t.Log("✓ File can be truncated to zero size")
+}
+
 // TestDuckDBTableOperationsWithFilesystem tests complete table lifecycle with filesystem verification
 func TestDuckDBTableOperationsWithFilesystem(t *testing.T) {
 	tempDir := t.TempDir()
 	mfs := newTestMutableFS(tempDir)
 
-	c, err := duckdb.NewConnector("", func(driver.ExecerContext) error { return nil })
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	connector, err := duckfs.New(c, mfs)
+	// Use duckfs.Open to create a DuckDB instance with our virtual filesystem
+	dbPath := "test_database.db"
+	connector, err := duckfs.Open(dbPath, func(driver.ExecerContext) error { return nil }, mfs)
 	if err != nil {
 		t.Fatal(err)
 	}

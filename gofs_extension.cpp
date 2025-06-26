@@ -27,6 +27,10 @@ extern "C" {
   int64_t duckfs_file_write(int id, void *buf, int64_t size);
 
   int duckfs_file_remove(int id, const char *path);
+
+  int duckfs_file_truncate(int id, const char *path, int64_t size);
+
+  // int duckfs_file_sync(int id); // Not needed - FileSync is now a no-op
 }
 
 namespace duckdb {
@@ -196,6 +200,20 @@ namespace duckdb {
       if (result < 0) {
         throw IOException("duckdb failed to remove file: " + filename);
       }
+    }
+
+    void Truncate(FileHandle &handle, int64_t new_size) override {
+      auto f = dynamic_cast<GoFileHandle*>(&handle);
+      auto result = duckfs_file_truncate(this->id, handle.GetPath().c_str(), new_size);
+      if (result < 0) {
+        throw IOException("duckdb failed to truncate file: " + handle.GetPath());
+      }
+    }
+
+    void FileSync(FileHandle &handle) override {
+      // For virtual filesystem, sync is a no-op
+      // The underlying filesystem will handle persistence as needed
+      return;
     }
     
   private:
