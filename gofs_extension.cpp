@@ -21,6 +21,12 @@ extern "C" {
   int64_t duckfs_file_read(int id, void *buf, int64_t size);
 
   int64_t duckfs_file_seek(int id, int64_t off, int whence);
+
+  int duckfs_file_create(int id, const char *path);
+
+  int64_t duckfs_file_write(int id, void *buf, int64_t size);
+
+  int duckfs_file_remove(int id, const char *path);
 }
 
 namespace duckdb {
@@ -84,8 +90,16 @@ namespace duckdb {
     }
 
     unique_ptr<FileHandle> OpenFile(const string &path, FileOpenFlags flags, optional_ptr<FileOpener> opener) override {
-      auto id = duckfs_file_open(this->id, path.c_str());
-      if (id < 0) {
+      int file_id = -1;
+      
+      // Check if we need to create a new file
+      if (flags.OpenForWriting() && flags.CreateFileIfNotExists()) {
+        file_id = duckfs_file_create(this->id, path.c_str());
+      } else {
+        file_id = duckfs_file_open(this->id, path.c_str());
+      }
+      
+      if (file_id < 0) {
 	// This appears to be the right way to report errors opening files,
 	// usually indicating that the file does not exist. In several places,
 	// it causes DuckDB to throw an exception indicating that a null pointer
@@ -94,7 +108,7 @@ namespace duckdb {
 	// to the callers as Go errors.
 	return nullptr;
       }
-      return make_uniq<GoFileHandle>(*this, path, flags, id);
+      return make_uniq<GoFileHandle>(*this, path, flags, file_id);
     }
 
     int64_t GetFileSize(FileHandle &handle) override {
@@ -149,6 +163,39 @@ namespace duckdb {
 	throw IOException("duckdb failed get current file seek position: " + handle.GetPath());
       }
       return n;
+    }
+
+    void Write(FileHandle &handle, void *buffer, int64_t nr_bytes, idx_t location) override {
+      auto f = dynamic_cast<GoFileHandle*>(&handle);
+      // Seek to the specified location first
+      auto seek_result = duckfs_file_seek(f->id, location, GOFS_SEEK_SET);
+      if (seek_result < 0) {
+        throw IOException("duckdb failed to seek to write location: " + handle.GetPath());
+      }
+      // Write the data
+      auto n = duckfs_file_write(f->id, buffer, nr_bytes);
+      if (n < 0) {
+        throw IOException("duckdb failed to write to file: " + handle.GetPath());
+      }
+      if (n != nr_bytes) {
+        throw IOException("duckdb wrote fewer bytes than requested: " + handle.GetPath());
+      }
+    }
+
+    int64_t Write(FileHandle &handle, void *buffer, int64_t nr_bytes) override {
+      auto f = dynamic_cast<GoFileHandle*>(&handle);
+      auto n = duckfs_file_write(f->id, buffer, nr_bytes);
+      if (n < 0) {
+        throw IOException("duckdb failed to write to file: " + handle.GetPath());
+      }
+      return n;
+    }
+
+    void RemoveFile(const string &filename, optional_ptr<FileOpener> opener) override {
+      auto result = duckfs_file_remove(this->id, filename.c_str());
+      if (result < 0) {
+        throw IOException("duckdb failed to remove file: " + filename);
+      }
     }
     
   private:

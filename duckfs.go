@@ -21,6 +21,13 @@ import (
 	"github.com/marcboeker/go-duckdb/v2"
 )
 
+// MutableFS extends fs.FS with methods for creating and removing files.
+type MutableFS interface {
+	fs.FS
+	Create(name string) (fs.File, error)
+	Remove(name string) error
+}
+
 type filemap[T comparable] struct {
 	mutex sync.RWMutex
 	files []T
@@ -186,6 +193,67 @@ func duckfs_file_seek(id C.int, off C.int64_t, whence int) C.int64_t {
 		return -1
 	}
 	return C.int64_t(s)
+}
+
+//export duckfs_file_create
+func duckfs_file_create(id C.int, path *C.char) C.int {
+	fsys, ok := globalFsys.lookup(int32(id))
+	if !ok {
+		slog.Warn("duckfs_file_create: file system not found", "filesystem", id, "path", C.GoString(path))
+		return -1
+	}
+	mfs, ok := fsys.(MutableFS)
+	if !ok {
+		slog.Warn("duckfs_file_create: file system does not support file creation", "filesystem", id, "path", C.GoString(path))
+		return -1
+	}
+	f, err := mfs.Create(C.GoString(path))
+	if err != nil {
+		slog.Warn("duckfs_file_create: failed to create file", "filesystem", id, "path", C.GoString(path), "error", err)
+		return -1
+	}
+	return C.int(globalFiles.register(f))
+}
+
+//export duckfs_file_write
+func duckfs_file_write(id C.int, buf unsafe.Pointer, size C.int64_t) C.int64_t {
+	f, ok := globalFiles.lookup(int32(id))
+	if !ok {
+		slog.Warn("duckfs_file_write: file not found", "file", id)
+		return -1
+	}
+	w, ok := f.(io.Writer)
+	if !ok {
+		slog.Warn("duckfs_file_write: file does not support io.Writer", "file", id)
+		return -1
+	}
+	buffer := unsafe.Slice((*byte)(buf), size)
+	n, err := w.Write(buffer)
+	if err != nil {
+		slog.Warn("duckfs_file_write: failed to write to file", "file", id, "error", err)
+		return -1
+	}
+	return C.int64_t(n)
+}
+
+//export duckfs_file_remove
+func duckfs_file_remove(id C.int, path *C.char) C.int {
+	fsys, ok := globalFsys.lookup(int32(id))
+	if !ok {
+		slog.Warn("duckfs_file_remove: file system not found", "filesystem", id, "path", C.GoString(path))
+		return -1
+	}
+	mfs, ok := fsys.(MutableFS)
+	if !ok {
+		slog.Warn("duckfs_file_remove: file system does not support file removal", "filesystem", id, "path", C.GoString(path))
+		return -1
+	}
+	err := mfs.Remove(C.GoString(path))
+	if err != nil {
+		slog.Warn("duckfs_file_remove: failed to remove file", "filesystem", id, "path", C.GoString(path), "error", err)
+		return -1
+	}
+	return 0
 }
 
 // Connector is a type similar to duckdb.Connector, but it manages the
