@@ -21,6 +21,8 @@ extern "C" {
   int64_t duckfs_file_read(int id, void *buf, int64_t size);
 
   int64_t duckfs_file_seek(int id, int64_t off, int whence);
+
+  int64_t duckfs_file_last_modified(int id);
 }
 
 namespace duckdb {
@@ -79,7 +81,7 @@ namespace duckdb {
       return duckfs_file_exists(this->id, filename.c_str());
     }
 
-    vector<string> Glob(const string &path, FileOpener *opener) override {
+    vector<OpenFileInfo> Glob(const string &path, FileOpener *opener) override {
       return {path}; // FIXME
     }
 
@@ -149,6 +151,10 @@ namespace duckdb {
 	throw IOException("duckdb failed get current file seek position: " + handle.GetPath());
       }
       return n;
+    }
+
+    time_t GetLastModifiedTime(FileHandle &handle) override {
+      return duckfs_file_last_modified(dynamic_cast<GoFileHandle*>(&handle)->id);
     }
     
   private:
