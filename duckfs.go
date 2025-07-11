@@ -15,6 +15,7 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"net/url"
 	"sync"
 	"unsafe"
 
@@ -287,7 +288,7 @@ func duckfs_file_sync(id C.int) C.int {
 		// Just return success as there's nothing to sync
 		return 0
 	}
-	
+
 	// Check if the file implements a Sync() error method
 	if syncer, ok := file.(interface{ Sync() error }); ok {
 		err := syncer.Sync()
@@ -348,15 +349,35 @@ func (c *Connector) Driver() driver.Driver {
 //
 // https://pkg.go.dev/github.com/marcboeker/go-duckdb/v2#NewConnector
 func Open(dsn string, connInitFn func(execer driver.ExecerContext) error, fsys fs.FS) (*Connector, error) {
-	c, err := duckdb.NewConnector(dsn, connInitFn)
+	u, err := url.Parse(dsn)
 	if err != nil {
 		return nil, err
 	}
+
+	c, err := duckdb.NewConnector("?"+u.RawQuery, connInitFn)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if c != nil {
+			c.Close()
+		}
+	}()
+
 	x, err := New(c, fsys)
 	if err != nil {
-		c.Close()
 		return nil, err
 	}
+
+	if u.Host != "" {
+		conn, err := c.Connect(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		defer conn.Close()
+	}
+
+	c = nil
 	x.own = true
 	return x, nil
 }

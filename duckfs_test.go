@@ -2,7 +2,6 @@ package duckfs_test
 
 import (
 	"database/sql"
-	"database/sql/driver"
 	"fmt"
 	"io"
 	"io/fs"
@@ -123,7 +122,7 @@ func Example() {
 }
 
 func TestNew(t *testing.T) {
-	c, err := duckdb.NewConnector("test.db", func(driver.ExecerContext) error { return nil })
+	c, err := duckdb.NewConnector("", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -288,7 +287,7 @@ func TestFileCreateAndWrite(t *testing.T) {
 	tempDir := t.TempDir()
 	mfs := newTestMutableFS(tempDir)
 
-	connector, err := duckfs.Open("test.db", func(driver.ExecerContext) error { return nil }, mfs)
+	connector, err := duckfs.Open("", nil, mfs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,7 +363,7 @@ func TestFileWriteOperations(t *testing.T) {
 	tempDir := t.TempDir()
 	mfs := newTestMutableFS(tempDir)
 
-	connector, err := duckfs.Open("test.db", func(driver.ExecerContext) error { return nil }, mfs)
+	connector, err := duckfs.Open("", nil, mfs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -434,7 +433,7 @@ func TestFileRemoval(t *testing.T) {
 	tempDir := t.TempDir()
 	mfs := newTestMutableFS(tempDir)
 
-	connector, err := duckfs.Open("test.db", func(driver.ExecerContext) error { return nil }, mfs)
+	connector, err := duckfs.Open("", nil, mfs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -496,7 +495,7 @@ func TestFileOperationsIntegration(t *testing.T) {
 	tempDir := t.TempDir()
 	mfs := newTestMutableFS(tempDir)
 
-	c, err := duckdb.NewConnector("", func(driver.ExecerContext) error { return nil })
+	c, err := duckdb.NewConnector("", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -642,7 +641,7 @@ func TestErrorHandling(t *testing.T) {
 	tempDir := t.TempDir()
 	mfs := newTestMutableFS(tempDir)
 
-	connector, err := duckfs.Open("test.db", func(driver.ExecerContext) error { return nil }, mfs)
+	connector, err := duckfs.Open("", nil, mfs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -687,15 +686,14 @@ func TestDuckDBCreateTableBackend(t *testing.T) {
 	mfs := newTestMutableFS(tempDir)
 
 	// Use duckfs.Open to create a DuckDB instance with our virtual filesystem
-	dbPath := "test_database.db"
-	connector, err := duckfs.Open(dbPath, func(driver.ExecerContext) error { return nil }, mfs)
+	connector, err := duckfs.Open("", nil, mfs)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer connector.Close()
+	//defer connector.Close()
 
 	db := sql.OpenDB(connector)
-	defer db.Close()
+	//defer db.Close()
 
 	// Verify filesystem starts empty
 	verifyFilesystemEmpty(t, tempDir, "at test start")
@@ -789,8 +787,7 @@ func TestDuckDBDropTableBackend(t *testing.T) {
 	mfs := newTestMutableFS(tempDir)
 
 	// Use duckfs.Open to create a DuckDB instance with our virtual filesystem
-	dbPath := "test_database.db"
-	connector, err := duckfs.Open(dbPath, func(driver.ExecerContext) error { return nil }, mfs)
+	connector, err := duckfs.Open("", nil, mfs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -903,8 +900,7 @@ func TestDuckDBTableBackendFilesystemVerification(t *testing.T) {
 	mfs := newTestMutableFS(tempDir)
 
 	// Use duckfs.Open to create a DuckDB instance with our virtual filesystem
-	dbPath := "test_database.db"
-	connector, err := duckfs.Open(dbPath, func(driver.ExecerContext) error { return nil }, mfs)
+	connector, err := duckfs.Open("", nil, mfs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1105,8 +1101,7 @@ func TestDuckDBTableOperationsWithFilesystem(t *testing.T) {
 	mfs := newTestMutableFS(tempDir)
 
 	// Use duckfs.Open to create a DuckDB instance with our virtual filesystem
-	dbPath := "test_database.db"
-	connector, err := duckfs.Open(dbPath, func(driver.ExecerContext) error { return nil }, mfs)
+	connector, err := duckfs.Open("", nil, mfs)
 	if err != nil {
 		t.Fatal(err)
 	}
