@@ -2,8 +2,8 @@
 // standard library's filesystem interface (io/fs).
 package duckfs
 
-// #cgo CFLAGS:   -I${SRCDIR}/duckdb/v1.2.2/src/include
-// #cgo CXXFLAGS: -I${SRCDIR}/duckdb/v1.2.2/src/include -std=c++17
+// #cgo CFLAGS:   -I${SRCDIR}/duckdb/v1.3.2/src/include
+// #cgo CXXFLAGS: -I${SRCDIR}/duckdb/v1.3.2/src/include -std=c++17
 // #include <gofs_extension.hpp>
 import "C"
 
@@ -18,6 +18,7 @@ import (
 	"sync"
 	"unsafe"
 
+	"github.com/marcboeker/go-duckdb/mapping"
 	"github.com/marcboeker/go-duckdb/v2"
 )
 
@@ -188,6 +189,19 @@ func duckfs_file_seek(id C.int, off C.int64_t, whence int) C.int64_t {
 	return C.int64_t(s)
 }
 
+//export duckfs_file_last_modified
+func duckfs_file_last_modified(id C.int) C.int64_t {
+	f, ok := globalFiles.lookup(int32(id))
+	if !ok {
+		return 0
+	}
+	s, err := f.Stat()
+	if err != nil {
+		return 0
+	}
+	return C.int64_t(s.ModTime().Unix())
+}
+
 // Connector is a type similar to duckdb.Connector, but it manages the
 // lifecycle of a virtual filesystem installed on the underlying DuckDB
 // database.
@@ -261,11 +275,10 @@ func New(c *duckdb.Connector, fsys fs.FS) (*Connector, error) {
 	return &Connector{conn: c, fsys: f}, nil
 }
 
-type duckdbConnector struct { // same memory layout as duckdb.Connector
-	_        bool
-	database C.duckdb_database
+type duckdbConnector struct { // same memory layout as duckdb.Connector (https://github.com/marcboeker/go-duckdb/blob/v2.3.3/duckdb.go#L45)
+	database mapping.Database
 }
 
 func duckdbConnectorDatabase(c *duckdb.Connector) C.duckdb_database {
-	return (*duckdbConnector)(unsafe.Pointer(c)).database
+	return C.duckdb_database((*duckdbConnector)(unsafe.Pointer(c)).database.Ptr)
 }
