@@ -23,7 +23,7 @@ version of the DuckDB Go bindings suited for dynamic linking, for example:
 go test -tags=duckdb_use_lib
 ```
 
-https://github.com/marcboeker/go-duckdb?tab=readme-ov-file#linking-a-dynamic-library
+https://github.com/duckdb/duckdb-go?tab=readme-ov-file#linking-a-dynamic-library
 
 ## Testing
 

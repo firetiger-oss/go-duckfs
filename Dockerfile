@@ -23,7 +23,7 @@ RUN pixi install --locked
 # ==============================================================================
 # Step 1: build the extension
 # ---------------------------
-FROM golang:1.24.2 AS build
+FROM golang:1.25 AS build
 WORKDIR /src
 # Download the Go dependencies first so they can be kept in the docker cache.
 COPY go.mod go.sum .

@@ -2,8 +2,8 @@
 // standard library's filesystem interface (io/fs).
 package duckfs
 
-// #cgo CFLAGS:   -I${SRCDIR}/duckdb/v1.3.2/src/include
-// #cgo CXXFLAGS: -I${SRCDIR}/duckdb/v1.3.2/src/include -std=c++17
+// #cgo CFLAGS:   -I${SRCDIR}/duckdb/v1.4.1/src/include
+// #cgo CXXFLAGS: -I${SRCDIR}/duckdb/v1.4.1/src/include -std=c++17
 // #include <gofs_extension.hpp>
 import "C"
 
@@ -18,8 +18,8 @@ import (
 	"sync"
 	"unsafe"
 
-	"github.com/marcboeker/go-duckdb/mapping"
-	"github.com/marcboeker/go-duckdb/v2"
+	"github.com/duckdb/duckdb-go/mapping"
+	"github.com/duckdb/duckdb-go/v2"
 )
 
 type filemap[T comparable] struct {
@@ -161,13 +161,10 @@ func duckfs_file_read(id C.int, buf unsafe.Pointer, size C.int64_t) C.int64_t {
 	}
 	buffer := unsafe.Slice((*byte)(buf), size)
 	n, err := f.Read(buffer)
-	if n > 0 {
-		return C.int64_t(n)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return -1
 	}
-	if errors.Is(err, io.EOF) && n == 0 {
-		return 0
-	}
-	return -1
+	return C.int64_t(n)
 }
 
 //export duckfs_file_seek
