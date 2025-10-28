@@ -3,7 +3,6 @@
 #include <duckdb.hpp>
 #include <duckdb/common/exception.hpp>
 #include <duckdb/common/string_util.hpp>
-#include <duckdb/main/extension_util.hpp>
 #include <duckdb/main/capi/capi_internal.hpp>
 #include <gofs_extension.hpp>
 
@@ -153,10 +152,19 @@ namespace duckdb {
       return n;
     }
 
-    time_t GetLastModifiedTime(FileHandle &handle) override {
-      return duckfs_file_last_modified(dynamic_cast<GoFileHandle*>(&handle)->id);
+    timestamp_t GetLastModifiedTime(FileHandle &handle) override {
+      auto unix_time = duckfs_file_last_modified(dynamic_cast<GoFileHandle*>(&handle)->id);
+      return Timestamp::FromEpochSeconds(unix_time);
     }
-    
+
+    unique_ptr<FileHandle> OpenCompressedFile(QueryContext context, unique_ptr<FileHandle> handle, bool write) override {
+      throw NotImplementedException("GoFileSystem does not support compressed files");
+    }
+
+    bool SubSystemIsDisabled(const string &name) override {
+      return false;
+    }
+
   private:
     int id;
   };
@@ -164,8 +172,8 @@ namespace duckdb {
   static void LoadInternal(DatabaseInstance &instance) {
   }
 
-  void GoFSExtension::Load(DuckDB &db) {
-    LoadInternal(*db.instance);
+  void GoFSExtension::Load(ExtensionLoader &loader) {
+    LoadInternal(loader.GetDatabaseInstance());
   }
 
   string GoFSExtension::Name() {
@@ -179,8 +187,9 @@ namespace duckdb {
 
 extern "C" {
   DUCKDB_EXTENSION_API void gofs_init(duckdb::DatabaseInstance &db) {
-    duckdb::DuckDB wrapper(db);
-    wrapper.LoadExtension<duckdb::GoFSExtension>();
+    auto extension = duckdb::make_uniq<duckdb::GoFSExtension>();
+    duckdb::ExtensionLoader loader(db, extension->Name());
+    extension->Load(loader);
   }
 
   DUCKDB_EXTENSION_API const char *gofs_version() {
