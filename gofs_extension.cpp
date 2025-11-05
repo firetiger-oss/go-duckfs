@@ -7,6 +7,8 @@
 #include <gofs_extension.hpp>
 
 extern "C" {
+  int duckfs_directory_exists(int id, const char *path);
+
   int duckfs_file_exists(int id, const char *path);
 
   int duckfs_file_open(int id, const char *path);
@@ -74,6 +76,10 @@ namespace duckdb {
 
     bool OnDiskFile(FileHandle &handle) override {
       return false;
+    }
+
+    bool DirectoryExists(const string &directory, optional_ptr<FileOpener> opener) override {
+      return duckfs_directory_exists(this->id, directory.c_str());
     }
 
     bool FileExists(const string &filename, optional_ptr<FileOpener> opener) override {

@@ -102,3 +102,38 @@ func TestQueryFileNotExist(t *testing.T) {
 		t.Errorf("unexpected error type: %T", err)
 	}
 }
+
+func TestDirectoryExists(t *testing.T) {
+	c, err := duckfs.Open("", nil, os.DirFS("testdata"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	db := sql.OpenDB(c)
+	defer db.Close()
+
+	// This test exercises the DirectoryExists code path by reading from
+	// subdirectories. DuckDB will call DirectoryExists to verify that
+	// "folder-1" is a directory when accessing files in subdirectories.
+
+	// Test reading from a file in a subdirectory
+	var message string
+	err = db.QueryRow(`SELECT message FROM read_csv('folder-1/database.csv')`).Scan(&message)
+	if err != nil {
+		t.Fatalf("failed to read from subdirectory: %v", err)
+	}
+
+	if message != "hello" {
+		t.Errorf("unexpected message: got %q, want 'hello'", message)
+	}
+
+	// Test reading from another subdirectory
+	err = db.QueryRow(`SELECT message FROM read_csv('folder-2/database.csv')`).Scan(&message)
+	if err != nil {
+		t.Fatalf("failed to read from subdirectory: %v", err)
+	}
+
+	if message != "world" {
+		t.Errorf("unexpected message: got %q, want 'world'", message)
+	}
+}
