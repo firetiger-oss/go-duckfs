@@ -15,6 +15,8 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sync"
 	"unsafe"
 
@@ -82,11 +84,24 @@ var (
 
 //export duckfs_directory_exists
 func duckfs_directory_exists(id C.int, path *C.char) C.int {
+	p := C.GoString(path)
+
+	if filepath.IsAbs(p) {
+		info, err := os.Stat(p)
+		if err != nil {
+			return 0
+		}
+		if !info.IsDir() {
+			return 0
+		}
+		return 1
+	}
+
 	fsys, ok := globalFsys.lookup(int32(id))
 	if !ok {
 		return 0
 	}
-	info, err := fs.Stat(fsys, C.GoString(path))
+	info, err := fs.Stat(fsys, p)
 	if err != nil {
 		return 0
 	}
@@ -98,11 +113,21 @@ func duckfs_directory_exists(id C.int, path *C.char) C.int {
 
 //export duckfs_file_exists
 func duckfs_file_exists(id C.int, path *C.char) C.int {
+	p := C.GoString(path)
+
+	if filepath.IsAbs(p) {
+		_, err := os.Stat(p)
+		if err != nil {
+			return 0
+		}
+		return 1
+	}
+
 	fsys, ok := globalFsys.lookup(int32(id))
 	if !ok {
 		return 0
 	}
-	_, err := fs.Stat(fsys, C.GoString(path))
+	_, err := fs.Stat(fsys, p)
 	if err != nil {
 		return 0
 	}
@@ -111,13 +136,84 @@ func duckfs_file_exists(id C.int, path *C.char) C.int {
 
 //export duckfs_file_open
 func duckfs_file_open(id C.int, path *C.char) C.int {
+	p := C.GoString(path)
+
+	if filepath.IsAbs(p) {
+		f, err := os.Open(p)
+		if err != nil {
+			return -1
+		}
+		return C.int(globalFiles.register(f))
+	}
+
 	fsys, ok := globalFsys.lookup(int32(id))
 	if !ok {
-		slog.Warn("duckfs_file_open: file system not found", "filesystem", id, "path", C.GoString(path))
+		slog.Warn("duckfs_file_open: file system not found", "filesystem", id, "path", p)
 		return -1
 	}
-	f, err := fsys.Open(C.GoString(path))
+	f, err := fsys.Open(p)
 	if err != nil {
+		return -1
+	}
+	return C.int(globalFiles.register(f))
+}
+
+//export duckfs_file_open_write
+func duckfs_file_open_write(path *C.char, flags C.int) C.int {
+	p := C.GoString(path)
+
+	if flags&C.DUCKDB_FILE_FLAGS_NULL_IF_EXISTS != 0 {
+		if _, err := os.Stat(p); err == nil {
+			return -1
+		}
+	}
+
+	const (
+		r  = C.DUCKDB_FILE_FLAGS_READ
+		w  = C.DUCKDB_FILE_FLAGS_WRITE
+		rw = r | w
+	)
+
+	var goFlags int
+	switch {
+	case flags&rw == rw:
+		goFlags |= os.O_RDWR
+	case flags&r != 0:
+		goFlags |= os.O_RDONLY
+	case flags&w != 0:
+		goFlags |= os.O_WRONLY
+	}
+	if flags&C.DUCKDB_FILE_FLAGS_FILE_CREATE != 0 {
+		goFlags |= os.O_CREATE
+	}
+	if flags&C.DUCKDB_FILE_FLAGS_FILE_CREATE_NEW != 0 {
+		goFlags |= os.O_CREATE | os.O_TRUNC
+	}
+	if flags&C.DUCKDB_FILE_FLAGS_EXCLUSIVE_CREATE != 0 {
+		goFlags |= os.O_CREATE | os.O_EXCL
+	}
+	if flags&C.DUCKDB_FILE_FLAGS_APPEND != 0 {
+		goFlags |= os.O_APPEND
+	} else if flags&C.DUCKDB_FILE_FLAGS_WRITE != 0 {
+		goFlags |= os.O_TRUNC
+	}
+
+	if goFlags == 0 {
+		goFlags = os.O_RDONLY
+	}
+
+	if goFlags&os.O_CREATE != 0 && flags&C.DUCKDB_FILE_FLAGS_NULL_IF_NOT_EXISTS == 0 {
+		if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+			slog.Warn("duckfs_file_open_write: failed to create parent directory", "path", p, "error", err)
+			return -1
+		}
+	}
+
+	f, err := os.OpenFile(p, goFlags, 0644)
+	if err != nil {
+		if flags&C.DUCKDB_FILE_FLAGS_NULL_IF_NOT_EXISTS == 0 {
+			slog.Warn("duckfs_file_open_write: failed to open file", "path", p, "flags", fmt.Sprintf("0x%x", flags), "goFlags", fmt.Sprintf("0x%x", goFlags), "error", err)
+		}
 		return -1
 	}
 	return C.int(globalFiles.register(f))
@@ -152,12 +248,10 @@ func duckfs_file_size(id C.int) C.int64_t {
 func duckfs_file_read_at(id C.int, buf unsafe.Pointer, size, off C.int64_t) C.int64_t {
 	f, ok := globalFiles.lookup(int32(id))
 	if !ok {
-		slog.Warn("duckfs_file_read_at: file not found", "file", id)
 		return -1
 	}
 	r, ok := f.(io.ReaderAt)
 	if !ok {
-		slog.Warn("duckfs_file_read_at: file does not support io.ReaderAt", "file", id)
 		return -1
 	}
 	buffer := unsafe.Slice((*byte)(buf), size)
@@ -181,6 +275,86 @@ func duckfs_file_read(id C.int, buf unsafe.Pointer, size C.int64_t) C.int64_t {
 		return -1
 	}
 	return C.int64_t(n)
+}
+
+//export duckfs_file_write
+func duckfs_file_write(id C.int, buf unsafe.Pointer, size C.int64_t) C.int64_t {
+	f, ok := globalFiles.lookup(int32(id))
+	if !ok {
+		slog.Warn("duckfs_file_write: file not found", "file", id)
+		return -1
+	}
+	w, ok := f.(io.Writer)
+	if !ok {
+		slog.Warn("duckfs_file_write: file does not support io.Writer", "file", id)
+		return -1
+	}
+	buffer := unsafe.Slice((*byte)(buf), size)
+	n, err := w.Write(buffer)
+	if err != nil {
+		slog.Warn("duckfs_file_write: write failed", "file", id, "error", err)
+		return -1
+	}
+	return C.int64_t(n)
+}
+
+//export duckfs_file_write_at
+func duckfs_file_write_at(id C.int, buf unsafe.Pointer, size, off C.int64_t) C.int64_t {
+	f, ok := globalFiles.lookup(int32(id))
+	if !ok {
+		slog.Warn("duckfs_file_write_at: file not found", "file", id)
+		return -1
+	}
+	w, ok := f.(io.WriterAt)
+	if !ok {
+		slog.Warn("duckfs_file_write_at: file does not support io.WriterAt", "file", id)
+		return -1
+	}
+	buffer := unsafe.Slice((*byte)(buf), size)
+	n, err := w.WriteAt(buffer, int64(off))
+	if err != nil && n == 0 {
+		slog.Warn("duckfs_file_write_at: write at failed", "file", id, "error", err)
+		return -1
+	}
+	return C.int64_t(n)
+}
+
+//export duckfs_file_truncate
+func duckfs_file_truncate(id C.int, size C.int64_t) C.int {
+	f, ok := globalFiles.lookup(int32(id))
+	if !ok {
+		slog.Warn("duckfs_file_truncate: file not found", "file", id)
+		return -1
+	}
+	osFile, ok := f.(*os.File)
+	if !ok {
+		slog.Warn("duckfs_file_truncate: file is not an *os.File", "file", id)
+		return -1
+	}
+	if err := osFile.Truncate(int64(size)); err != nil {
+		slog.Warn("duckfs_file_truncate: truncate failed", "file", id, "error", err)
+		return -1
+	}
+	return 0
+}
+
+//export duckfs_file_sync
+func duckfs_file_sync(id C.int) C.int {
+	f, ok := globalFiles.lookup(int32(id))
+	if !ok {
+		slog.Warn("duckfs_file_sync: file not found", "file", id)
+		return -1
+	}
+	osFile, ok := f.(*os.File)
+	if !ok {
+		// If it's not an os.File, it's probably read-only, so sync is a no-op
+		return 0
+	}
+	if err := osFile.Sync(); err != nil {
+		slog.Warn("duckfs_file_sync: sync failed", "file", id, "error", err)
+		return -1
+	}
+	return 0
 }
 
 //export duckfs_file_seek
@@ -215,6 +389,48 @@ func duckfs_file_last_modified(id C.int) C.int64_t {
 	return C.int64_t(s.ModTime().Unix())
 }
 
+//export duckfs_file_is_on_disk
+func duckfs_file_is_on_disk(id C.int) C.int {
+	f, ok := globalFiles.lookup(int32(id))
+	if !ok {
+		return 0
+	}
+	if _, ok := f.(*os.File); ok {
+		return 1
+	}
+	return 0
+}
+
+//export duckfs_create_directory
+func duckfs_create_directory(path *C.char) C.int {
+	p := C.GoString(path)
+	if err := os.MkdirAll(p, 0755); err != nil {
+		slog.Warn("duckfs_create_directory: failed to create directory", "path", p, "error", err)
+		return -1
+	}
+	return 0
+}
+
+//export duckfs_remove_directory
+func duckfs_remove_directory(path *C.char) C.int {
+	p := C.GoString(path)
+	if err := os.RemoveAll(p); err != nil {
+		slog.Warn("duckfs_remove_directory: failed to remove directory", "path", p, "error", err)
+		return -1
+	}
+	return 0
+}
+
+//export duckfs_remove_file
+func duckfs_remove_file(path *C.char) C.int {
+	p := C.GoString(path)
+	if err := os.Remove(p); err != nil {
+		slog.Warn("duckfs_remove_file: failed to remove file", "path", p, "error", err)
+		return -1
+	}
+	return 0
+}
+
 // Connector is a type similar to duckdb.Connector, but it manages the
 // lifecycle of a virtual filesystem installed on the underlying DuckDB
 // database.
@@ -231,16 +447,20 @@ func (c *Connector) Close() error {
 	var err1 error
 	var err2 error
 
+	if c.own {
+		err2 = c.conn.Close()
+	}
+
+	// As of DuckDB v1.4.1, the deregistration of a virtual file system
+	// must happen after closing the connection, or causes a segfault,
+	// likely from having the connection reference files that depended
+	// on the virtual file system that they were opened from.
 	c.once.Do(func() {
 		if status := C.duckfs_unregister_subsystem(duckdbConnectorDatabase(c.conn)); status != 0 {
 			err1 = fmt.Errorf("duckdb error when attempting to unregister a virtual file system: %d", status)
 		}
 		globalFsys.unregister(c.fsys)
 	})
-
-	if c.own {
-		err2 = c.conn.Close()
-	}
 
 	return errors.Join(err1, err2)
 }

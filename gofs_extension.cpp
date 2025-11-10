@@ -3,6 +3,7 @@
 #include <duckdb.hpp>
 #include <duckdb/common/exception.hpp>
 #include <duckdb/common/string_util.hpp>
+#include <duckdb/common/file_open_flags.hpp>
 #include <duckdb/main/capi/capi_internal.hpp>
 #include <gofs_extension.hpp>
 
@@ -13,6 +14,8 @@ extern "C" {
 
   int duckfs_file_open(int id, const char *path);
 
+  int duckfs_file_open_write(const char *path, int flags);
+
   int duckfs_file_close(int id);
 
   int64_t duckfs_file_size(int id);
@@ -21,10 +24,44 @@ extern "C" {
 
   int64_t duckfs_file_read(int id, void *buf, int64_t size);
 
+  int64_t duckfs_file_write(int id, void *buf, int64_t size);
+
+  int64_t duckfs_file_write_at(int id, void *buf, int64_t size, int64_t off);
+
   int64_t duckfs_file_seek(int id, int64_t off, int whence);
 
   int64_t duckfs_file_last_modified(int id);
+
+  int duckfs_file_truncate(int id, int64_t size);
+
+  int duckfs_file_sync(int id);
+
+  int duckfs_file_is_on_disk(int id);
+
+  int duckfs_create_directory(const char *path);
+
+  int duckfs_remove_directory(const char *path);
+
+  int duckfs_remove_file(const char *path);
 }
+
+// Compile-time checks to ensure our macro values match DuckDB's constants
+static_assert(DUCKDB_FILE_FLAGS_READ == duckdb::FileOpenFlags::FILE_FLAGS_READ,
+              "DUCKDB_FILE_FLAGS_READ mismatch");
+static_assert(DUCKDB_FILE_FLAGS_WRITE == duckdb::FileOpenFlags::FILE_FLAGS_WRITE,
+              "DUCKDB_FILE_FLAGS_WRITE mismatch");
+static_assert(DUCKDB_FILE_FLAGS_FILE_CREATE == duckdb::FileOpenFlags::FILE_FLAGS_FILE_CREATE,
+              "DUCKDB_FILE_FLAGS_FILE_CREATE mismatch");
+static_assert(DUCKDB_FILE_FLAGS_FILE_CREATE_NEW == duckdb::FileOpenFlags::FILE_FLAGS_FILE_CREATE_NEW,
+              "DUCKDB_FILE_FLAGS_FILE_CREATE_NEW mismatch");
+static_assert(DUCKDB_FILE_FLAGS_APPEND == duckdb::FileOpenFlags::FILE_FLAGS_APPEND,
+              "DUCKDB_FILE_FLAGS_APPEND mismatch");
+static_assert(DUCKDB_FILE_FLAGS_NULL_IF_NOT_EXISTS == duckdb::FileOpenFlags::FILE_FLAGS_NULL_IF_NOT_EXISTS,
+              "DUCKDB_FILE_FLAGS_NULL_IF_NOT_EXISTS mismatch");
+static_assert(DUCKDB_FILE_FLAGS_EXCLUSIVE_CREATE == duckdb::FileOpenFlags::FILE_FLAGS_EXCLUSIVE_CREATE,
+              "DUCKDB_FILE_FLAGS_EXCLUSIVE_CREATE mismatch");
+static_assert(DUCKDB_FILE_FLAGS_NULL_IF_EXISTS == duckdb::FileOpenFlags::FILE_FLAGS_NULL_IF_EXISTS,
+              "DUCKDB_FILE_FLAGS_NULL_IF_EXISTS mismatch");
 
 namespace duckdb {
   constexpr const char *GOFS_FILESYSTEM_NAME = "GoFileSystem";
@@ -75,7 +112,8 @@ namespace duckdb {
     }
 
     bool OnDiskFile(FileHandle &handle) override {
-      return false;
+      auto f = dynamic_cast<GoFileHandle*>(&handle);
+      return duckfs_file_is_on_disk(f->id) != 0;
     }
 
     bool DirectoryExists(const string &directory, optional_ptr<FileOpener> opener) override {
@@ -91,7 +129,16 @@ namespace duckdb {
     }
 
     unique_ptr<FileHandle> OpenFile(const string &path, FileOpenFlags flags, optional_ptr<FileOpener> opener) override {
-      auto id = duckfs_file_open(this->id, path.c_str());
+      int id;
+      // Check if we need write access
+      if (flags.OpenForWriting()) {
+        // Use the write-capable open function that uses os.OpenFile
+        id = duckfs_file_open_write(path.c_str(), static_cast<int>(flags.GetFlagsInternal()));
+      } else {
+        // Use the read-only fs.FS based open
+        id = duckfs_file_open(this->id, path.c_str());
+      }
+
       if (id < 0) {
 	// This appears to be the right way to report errors opening files,
 	// usually indicating that the file does not exist. In several places,
@@ -133,6 +180,40 @@ namespace duckdb {
       return n;
     }
 
+    int64_t Write(FileHandle &handle, void *buf, int64_t size) override {
+      auto f = dynamic_cast<GoFileHandle*>(&handle);
+      auto n = duckfs_file_write(f->id, buf, size);
+      if (n < 0) {
+	throw IOException("duckdb failed to write file: " + handle.GetPath());
+      }
+      return n;
+    }
+
+    void Write(FileHandle &handle, void *buf, int64_t size, idx_t off) override {
+      auto f = dynamic_cast<GoFileHandle*>(&handle);
+      auto n = duckfs_file_write_at(f->id, buf, size, off);
+      if (n < 0) {
+	throw IOException("duckdb failed to write file at location: " + handle.GetPath());
+      }
+      if (n < size) {
+	throw IOException("duckdb wrote less than requested bytes: " + handle.GetPath());
+      }
+    }
+
+    void Truncate(FileHandle &handle, int64_t new_size) override {
+      auto f = dynamic_cast<GoFileHandle*>(&handle);
+      if (duckfs_file_truncate(f->id, new_size) < 0) {
+	throw IOException("duckdb failed to truncate file: " + handle.GetPath());
+      }
+    }
+
+    void FileSync(FileHandle &handle) override {
+      auto f = dynamic_cast<GoFileHandle*>(&handle);
+      if (duckfs_file_sync(f->id) < 0) {
+	throw IOException("duckdb failed to sync file: " + handle.GetPath());
+      }
+    }
+
     void Seek(FileHandle &handle, idx_t off) override {
       auto f = dynamic_cast<GoFileHandle*>(&handle);
       auto n = duckfs_file_seek(f->id, off, GOFS_SEEK_SET);
@@ -169,6 +250,24 @@ namespace duckdb {
 
     bool SubSystemIsDisabled(const string &name) override {
       return false;
+    }
+
+    void CreateDirectory(const string &directory, optional_ptr<FileOpener> opener) override {
+      if (duckfs_create_directory(directory.c_str()) < 0) {
+        throw IOException("GoFileSystem: failed to create directory: " + directory);
+      }
+    }
+
+    void RemoveDirectory(const string &directory, optional_ptr<FileOpener> opener) override {
+      if (duckfs_remove_directory(directory.c_str()) < 0) {
+        throw IOException("GoFileSystem: failed to remove directory: " + directory);
+      }
+    }
+
+    void RemoveFile(const string &filename, optional_ptr<FileOpener> opener) override {
+      if (duckfs_remove_file(filename.c_str()) < 0) {
+        throw IOException("GoFileSystem: failed to remove file: " + filename);
+      }
     }
 
   private:

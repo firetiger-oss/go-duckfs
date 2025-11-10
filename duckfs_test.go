@@ -9,8 +9,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/firetiger-oss/go-duckfs"
 	"github.com/duckdb/duckdb-go/v2"
+	"github.com/firetiger-oss/go-duckfs"
 )
 
 func Example() {
@@ -135,5 +135,130 @@ func TestDirectoryExists(t *testing.T) {
 
 	if message != "world" {
 		t.Errorf("unexpected message: got %q, want 'world'", message)
+	}
+}
+
+func TestWriteOperations(t *testing.T) {
+	// Create a temporary directory for testing write operations
+	tempDir := t.TempDir()
+
+	// Open a DuckDB connection with a custom temp directory
+	dsn := fmt.Sprintf("?temp_directory=%s", tempDir)
+	c, err := duckfs.Open(dsn, nil, os.DirFS("testdata"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	db := sql.OpenDB(c)
+	defer db.Close()
+
+	// Export a Parquet file to trigger write operations
+	// This will use CreateDirectory, OpenFile with write flags, Write, WriteAt, etc.
+	exportPath := tempDir + "/export/output.parquet"
+
+	query := fmt.Sprintf(`
+		COPY (
+			SELECT
+				range AS id,
+				'value_' || range::VARCHAR AS name,
+				range * 2 AS doubled
+			FROM range(1000)
+		) TO '%s' (FORMAT PARQUET)
+	`, exportPath)
+
+	if _, err := db.Exec(query); err != nil {
+		t.Fatalf("COPY TO failed (write operations may not be working): %v", err)
+	}
+
+	// Verify the file was created
+	if _, err := os.Stat(exportPath); err != nil {
+		t.Fatalf("exported file not found: %v", err)
+	}
+
+	// Verify the directory was created
+	exportDir := tempDir + "/export"
+	if info, err := os.Stat(exportDir); err != nil {
+		t.Fatalf("export directory not found: %v", err)
+	} else if !info.IsDir() {
+		t.Fatalf("export path is not a directory")
+	}
+
+	// Verify we can read the exported file back
+	var count int
+	if err := db.QueryRow(fmt.Sprintf("SELECT COUNT(*) FROM '%s'", exportPath)).Scan(&count); err != nil {
+		t.Fatalf("failed to read exported file: %v", err)
+	}
+
+	if count != 1000 {
+		t.Errorf("expected 1000 rows in exported file, got %d", count)
+	}
+}
+
+func TestSpillToDisk(t *testing.T) {
+	// This test verifies spill-to-disk works by using a dataset that exceeds memory limit
+	tempDir := t.TempDir()
+	spillDir := tempDir + "/spill"
+
+	dsn := fmt.Sprintf("%s", tempDir+"/test.db")
+	c, err := duckfs.Open(dsn, nil, os.DirFS("testdata"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	db := sql.OpenDB(c)
+	defer db.Close()
+
+	// Set temp directory via SQL as recommended in DuckDB docs
+	if _, err := db.Exec(fmt.Sprintf("SET temp_directory='%s'", spillDir)); err != nil {
+		t.Fatalf("failed to set temp_directory: %v", err)
+	}
+
+	// Set memory limit low enough to force spilling
+	if _, err := db.Exec("SET memory_limit='50MB'"); err != nil {
+		t.Fatalf("failed to set memory limit: %v", err)
+	}
+
+	if _, err := db.Exec("SET threads=1"); err != nil {
+		t.Fatalf("failed to set threads: %v", err)
+	}
+
+	if _, err := db.Exec("SET preserve_insertion_order=false"); err != nil {
+		t.Fatalf("failed to set preserve_insertion_order: %v", err)
+	}
+
+	// Create table with data larger than memory limit
+	// Using ORDER BY on large string data should force external sorting
+	_, err = db.Exec(`
+		CREATE TABLE test_data AS
+		SELECT
+			range AS id,
+			repeat('x', 500) AS payload
+		FROM range(500000)
+	`)
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	// Force sorting which should spill to disk
+	var count int
+	err = db.QueryRow("SELECT COUNT(*) FROM (SELECT * FROM test_data ORDER BY payload DESC, id ASC)").Scan(&count)
+	if err != nil {
+		t.Fatalf("failed to run ORDER BY query: %v", err)
+	}
+
+	if count != 500000 {
+		t.Errorf("expected 500000 rows, got %d", count)
+	}
+
+	// Verify spill directory was cleaned up (DuckDB removes temp files after query completes)
+	entries, err := os.ReadDir(spillDir)
+	if err != nil {
+		t.Fatalf("spill directory should exist: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected spill directory to be empty after query, got %d entries (remove functions may not be working)", len(entries))
+		for _, entry := range entries {
+			t.Logf("  - %s (isDir: %v)", entry.Name(), entry.IsDir())
+		}
 	}
 }
