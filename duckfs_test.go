@@ -14,7 +14,7 @@ import (
 )
 
 func Example() {
-	c, err := duckfs.Open("", nil, os.DirFS("testdata"))
+	c, err := duckfs.Open("", nil, newTestFS())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func Example() {
 	}
 
 	if err := db.QueryRow(
-		`SELECT timestamp, change_id, instrument_name, FROM read_parquet('example.parquet')`,
+		`SELECT timestamp, change_id, instrument_name, FROM read_parquet('test://testdata/example.parquet')`,
 	).Scan(&row.Timestamp, &row.ChangeID, &row.InstrumentName); err != nil {
 		log.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func TestNew(t *testing.T) {
 			defer db.Close()
 
 			var got string
-			if err := db.QueryRow(`SELECT message from read_csv('database.csv')`).Scan(&got); err != nil {
+			if err := db.QueryRow(`SELECT message from read_csv('test://database.csv')`).Scan(&got); err != nil {
 				t.Fatal(err)
 			}
 
@@ -62,8 +62,8 @@ func TestNew(t *testing.T) {
 		}
 	}
 
-	with(t, c, os.DirFS("testdata/folder-1"), test("hello"))
-	with(t, c, os.DirFS("testdata/folder-2"), test("world"))
+	with(t, c, newTestFSFromDir("testdata/folder-1"), test("hello"))
+	with(t, c, newTestFSFromDir("testdata/folder-2"), test("world"))
 }
 
 func with(t *testing.T, c *duckdb.Connector, fsys fs.FS, fn func(*duckfs.Connector)) {
@@ -80,7 +80,7 @@ func with(t *testing.T, c *duckdb.Connector, fsys fs.FS, fn func(*duckfs.Connect
 }
 
 func TestQueryFileNotExist(t *testing.T) {
-	c, err := duckfs.Open("", nil, os.DirFS("whatever"))
+	c, err := duckfs.Open("", nil, newTestFS())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestQueryFileNotExist(t *testing.T) {
 	}
 
 	if err := db.QueryRow(
-		`SELECT timestamp, change_id, instrument_name, FROM read_parquet('example.parquet')`,
+		`SELECT timestamp, change_id, instrument_name, FROM read_parquet('test://testdata/nonexistent.parquet')`,
 	).Scan(&row.Timestamp, &row.ChangeID, &row.InstrumentName); err == nil {
 		t.Error("no error when file does not exist")
 	} else if _, ok := err.(*duckdb.Error); !ok {
@@ -104,7 +104,7 @@ func TestQueryFileNotExist(t *testing.T) {
 }
 
 func TestDirectoryExists(t *testing.T) {
-	c, err := duckfs.Open("", nil, os.DirFS("testdata"))
+	c, err := duckfs.Open("", nil, newTestFS())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestDirectoryExists(t *testing.T) {
 
 	// Test reading from a file in a subdirectory
 	var message string
-	err = db.QueryRow(`SELECT message FROM read_csv('folder-1/database.csv')`).Scan(&message)
+	err = db.QueryRow(`SELECT message FROM read_csv('test://testdata/folder-1/database.csv')`).Scan(&message)
 	if err != nil {
 		t.Fatalf("failed to read from subdirectory: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestDirectoryExists(t *testing.T) {
 	}
 
 	// Test reading from another subdirectory
-	err = db.QueryRow(`SELECT message FROM read_csv('folder-2/database.csv')`).Scan(&message)
+	err = db.QueryRow(`SELECT message FROM read_csv('test://testdata/folder-2/database.csv')`).Scan(&message)
 	if err != nil {
 		t.Fatalf("failed to read from subdirectory: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestWriteOperations(t *testing.T) {
 
 	// Open a DuckDB connection with a custom temp directory
 	dsn := fmt.Sprintf("?temp_directory=%s", tempDir)
-	c, err := duckfs.Open(dsn, nil, os.DirFS("testdata"))
+	c, err := duckfs.Open(dsn, nil, newTestFS())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestSpillToDisk(t *testing.T) {
 	spillDir := tempDir + "/spill"
 
 	dsn := fmt.Sprintf("%s", tempDir+"/test.db")
-	c, err := duckfs.Open(dsn, nil, os.DirFS("testdata"))
+	c, err := duckfs.Open(dsn, nil, newTestFS())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,5 +260,69 @@ func TestSpillToDisk(t *testing.T) {
 		for _, entry := range entries {
 			t.Logf("  - %s (isDir: %v)", entry.Name(), entry.IsDir())
 		}
+	}
+}
+
+func TestRelativeTempDirectory(t *testing.T) {
+	// Create a temporary directory and change to it
+	tempDir := t.TempDir()
+	oldDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldDir)
+
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatal(err)
+	}
+
+	// Open DuckDB with a relative temp directory
+	c, err := duckfs.Open("test.db", nil, newTestFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	db := sql.OpenDB(c)
+	defer db.Close()
+
+	// Set relative temp directory - should work with protocol-based routing
+	if _, err := db.Exec("SET temp_directory='.tmp'"); err != nil {
+		t.Fatalf("failed to set relative temp_directory: %v", err)
+	}
+
+	// Create a large table with ORDER BY to trigger spilling to temp directory
+	if _, err := db.Exec("SET memory_limit='50MB'"); err != nil {
+		t.Fatalf("failed to set memory limit: %v", err)
+	}
+
+	if _, err := db.Exec("SET threads=1"); err != nil {
+		t.Fatalf("failed to set threads: %v", err)
+	}
+
+	_, err = db.Exec(`
+		CREATE TABLE test AS
+		SELECT
+			range AS id,
+			repeat('x', 500) AS payload
+		FROM range(500000)
+	`)
+	if err != nil {
+		t.Fatalf("failed to create table with relative temp directory: %v", err)
+	}
+
+	// Force sorting which should spill to .tmp directory
+	var count int
+	err = db.QueryRow("SELECT COUNT(*) FROM (SELECT * FROM test ORDER BY payload DESC, id ASC)").Scan(&count)
+	if err != nil {
+		t.Fatalf("failed to run ORDER BY query: %v", err)
+	}
+
+	if count != 500000 {
+		t.Errorf("expected 500000 rows, got %d", count)
+	}
+
+	// Verify .tmp directory exists in current directory
+	if _, err := os.Stat(".tmp"); err != nil {
+		t.Errorf(".tmp directory should exist: %v", err)
 	}
 }

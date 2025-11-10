@@ -17,12 +17,17 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"unsafe"
 
 	"github.com/duckdb/duckdb-go/mapping"
 	"github.com/duckdb/duckdb-go/v2"
 )
+
+func isVirtualFilePath(path string) bool {
+	return strings.Contains(path, "://")
+}
 
 type filemap[T comparable] struct {
 	mutex sync.RWMutex
@@ -138,7 +143,7 @@ func duckfs_file_exists(id C.int, path *C.char) C.int {
 func duckfs_file_open(id C.int, path *C.char) C.int {
 	p := C.GoString(path)
 
-	if filepath.IsAbs(p) {
+	if !isVirtualFilePath(p) {
 		f, err := os.Open(p)
 		if err != nil {
 			return -1
@@ -404,6 +409,10 @@ func duckfs_file_is_on_disk(id C.int) C.int {
 //export duckfs_create_directory
 func duckfs_create_directory(path *C.char) C.int {
 	p := C.GoString(path)
+	if isVirtualFilePath(p) {
+		slog.Warn("duckfs_create_directory: cannot create directory in virtual filesystem", "path", p)
+		return -1
+	}
 	if err := os.MkdirAll(p, 0755); err != nil {
 		slog.Warn("duckfs_create_directory: failed to create directory", "path", p, "error", err)
 		return -1
@@ -414,6 +423,10 @@ func duckfs_create_directory(path *C.char) C.int {
 //export duckfs_remove_directory
 func duckfs_remove_directory(path *C.char) C.int {
 	p := C.GoString(path)
+	if isVirtualFilePath(p) {
+		slog.Warn("duckfs_remove_directory: cannot remove directory from virtual filesystem", "path", p)
+		return -1
+	}
 	if err := os.RemoveAll(p); err != nil {
 		slog.Warn("duckfs_remove_directory: failed to remove directory", "path", p, "error", err)
 		return -1
@@ -424,6 +437,10 @@ func duckfs_remove_directory(path *C.char) C.int {
 //export duckfs_remove_file
 func duckfs_remove_file(path *C.char) C.int {
 	p := C.GoString(path)
+	if isVirtualFilePath(p) {
+		slog.Warn("duckfs_remove_file: cannot remove file from virtual filesystem", "path", p)
+		return -1
+	}
 	if err := os.Remove(p); err != nil {
 		slog.Warn("duckfs_remove_file: failed to remove file", "path", p, "error", err)
 		return -1
