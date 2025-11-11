@@ -26,7 +26,7 @@ import (
 )
 
 func isVirtualFilePath(path string) bool {
-	return strings.Contains(path, "://")
+	return strings.HasPrefix(path, ":memory:") || strings.Contains(path, "://")
 }
 
 type filemap[T comparable] struct {
