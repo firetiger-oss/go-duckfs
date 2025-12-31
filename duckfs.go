@@ -448,6 +448,25 @@ func duckfs_remove_file(path *C.char) C.int {
 	return 0
 }
 
+//export duckfs_move_file
+func duckfs_move_file(source, target *C.char) C.int {
+	src := C.GoString(source)
+	dst := C.GoString(target)
+
+	// Only support moves on local file system (absolute paths)
+	if !filepath.IsAbs(src) || !filepath.IsAbs(dst) {
+		slog.Warn("duckfs_move_file: only absolute paths supported", "source", src, "target", dst)
+		return -1
+	}
+
+	if err := os.Rename(src, dst); err != nil {
+		slog.Warn("duckfs_move_file: failed to move file", "source", src, "target", dst, "error", err)
+		return -1
+	}
+
+	return 0
+}
+
 // Connector is a type similar to duckdb.Connector, but it manages the
 // lifecycle of a virtual filesystem installed on the underlying DuckDB
 // database.
