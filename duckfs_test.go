@@ -263,6 +263,51 @@ func TestSpillToDisk(t *testing.T) {
 	}
 }
 
+func TestMoveFile(t *testing.T) {
+	// This test verifies MoveFile works by forcing a checkpoint operation,
+	// which internally uses MoveFile to atomically replace database files.
+	tempDir := t.TempDir()
+	dbPath := tempDir + "/test.db"
+
+	c, err := duckfs.Open(dbPath, nil, newTestFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	db := sql.OpenDB(c)
+	defer db.Close()
+
+	// Create a table and insert data
+	if _, err := db.Exec("CREATE TABLE test_move (id INTEGER, value VARCHAR)"); err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	if _, err := db.Exec("INSERT INTO test_move VALUES (1, 'hello'), (2, 'world')"); err != nil {
+		t.Fatalf("failed to insert data: %v", err)
+	}
+
+	// Force a checkpoint - this uses MoveFile internally to atomically
+	// move WAL/temporary files to their final locations
+	if _, err := db.Exec("CHECKPOINT"); err != nil {
+		t.Fatalf("CHECKPOINT failed (MoveFile may not be working): %v", err)
+	}
+
+	// Verify data is still readable after checkpoint
+	var count int
+	if err := db.QueryRow("SELECT COUNT(*) FROM test_move").Scan(&count); err != nil {
+		t.Fatalf("failed to query after checkpoint: %v", err)
+	}
+
+	if count != 2 {
+		t.Errorf("expected 2 rows, got %d", count)
+	}
+
+	// Verify database file exists
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("database file not found after checkpoint: %v", err)
+	}
+}
+
 func TestRelativeTempDirectory(t *testing.T) {
 	// Create a temporary directory and change to it
 	tempDir := t.TempDir()

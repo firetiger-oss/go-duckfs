@@ -43,6 +43,8 @@ extern "C" {
   int duckfs_remove_directory(const char *path);
 
   int duckfs_remove_file(const char *path);
+
+  int duckfs_move_file(const char *source, const char *target);
 }
 
 // Compile-time checks to ensure our macro values match DuckDB's constants
@@ -267,6 +269,12 @@ namespace duckdb {
     void RemoveFile(const string &filename, optional_ptr<FileOpener> opener) override {
       if (duckfs_remove_file(filename.c_str()) < 0) {
         throw IOException("GoFileSystem: failed to remove file: " + filename);
+      }
+    }
+
+    void MoveFile(const string &source, const string &target, optional_ptr<FileOpener> opener) override {
+      if (duckfs_move_file(source.c_str(), target.c_str()) < 0) {
+        throw IOException("GoFileSystem: failed to move file from " + source + " to " + target);
       }
     }
 
