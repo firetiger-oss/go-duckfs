@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: blacksmith-16vcpu-ubuntu-2204
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: Setup pixi for duckdb
+        uses: prefix-dev/setup-pixi@v0.9.3
+        with:
+          cache: true
+
+      - name: Install duckdb with pixi
+        run: pixi install --locked
+
+      - name: Run tests
+        env:
+          CGO_ENABLED: "1"
+          CGO_LDFLAGS: "-L${{ github.workspace }}/.pixi/envs/default/lib"
+          LD_LIBRARY_PATH: "${{ github.workspace }}/.pixi/envs/default/lib"
+          GOFLAGS: "-tags=duckdb_use_lib"
+        run: go test -v ./...
