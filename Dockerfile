@@ -12,7 +12,7 @@
 # -----------------------------------
 #
 # We use the pixi package manager for simplicity here, we have a hard dependency
-# on duckdb v1.4.3 and using pixi simplifies the installation of pre-built
+# on duckdb v1.4.4 and using pixi simplifies the installation of pre-built
 # binaries.
 FROM ghcr.io/prefix-dev/pixi:latest AS pixi
 WORKDIR /src
