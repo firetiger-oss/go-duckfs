@@ -1,8 +1,8 @@
-# go-duckfs
+# go-duckfs [![Go Reference](https://pkg.go.dev/badge/github.com/firetiger-oss/go-duckfs.svg)](https://pkg.go.dev/github.com/firetiger-oss/go-duckfs)
 
-<img src="assets/logo.png" alt="go-duckfs logo" width="200">
-
-[![Go Reference](https://pkg.go.dev/badge/github.com/firetiger-oss/go-duckfs.svg)](https://pkg.go.dev/github.com/firetiger-oss/go-duckfs)
+<p align="center">
+  <img src="assets/logo.png" alt="go-duckfs logo" width="400">
+</p>
 
 DuckDB virtual file system based on io/fs
 
