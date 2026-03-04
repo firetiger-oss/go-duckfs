@@ -10,9 +10,17 @@ DuckDB virtual file system based on io/fs
 
 The purpose of this package is to allow Go programs to mount `io/fs` read-only
 file systems as backend for DuckDB databases. It guarantees that all I/O will be
-executed by the Go runtime instead of being performed directly by DuckDB, which
-is often desirable to integrate with instrumentation, caching layers, or network
-clients for cloud storage.
+executed by the Go runtime instead of being performed directly by DuckDB.
+
+DuckDB has extensions such as `httpfs` or `aws` to integrate the query engine
+with data sets available over the network, but those are implemented in C++,
+they don't share the same I/O stack as the rest of a Go application, and this
+duality introduces challenges when it comes to instrumentation, access control,
+or performance.
+
+By sandboxing DuckDB via a _Virtual File System_, the `go-duckfs` package
+bridges all I/O operations back into the Go application to leverage pure Go
+packages like `net/http`, cloud vendor native SDKs, telemetry wrappers, etc...
 
 ## Building
 
@@ -97,15 +105,3 @@ defer db.Close()
 // Query using protocol prefix
 row := db.QueryRow(`SELECT * FROM read_csv('myproto://records.csv')`)
 ```
-
-### API Patterns
-
-The package provides two functions for creating connectors:
-
-- **`duckfs.Open(dsn, connInitFn, fsys)`** - Creates a new DuckDB instance with
-  the given `fs.FS`. The connector owns the DuckDB instance and must be closed
-  to release resources.
-
-- **`duckfs.New(connector, fsys)`** - Wraps an existing `duckdb.Connector` with
-  a virtual filesystem. Useful when you need to share a DuckDB instance or swap
-  filesystems dynamically.
