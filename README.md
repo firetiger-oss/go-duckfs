@@ -105,3 +105,17 @@ defer db.Close()
 // Query using protocol prefix
 row := db.QueryRow(`SELECT * FROM read_csv('myproto://records.csv')`)
 ```
+
+## Contributing
+
+Contributions are welcome! To get started:
+
+1. Ensure you have Go 1.24.0+ and [pixi](https://pixi.sh) installed
+2. Run `pixi install --locked` to install the DuckDB library
+3. Run tests using the commands in the [Testing](#testing) section
+
+Please report bugs and feature requests via [GitHub Issues](https://github.com/firetiger-oss/go-duckfs/issues).
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
