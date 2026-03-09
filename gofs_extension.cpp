@@ -45,6 +45,8 @@ extern "C" {
   int duckfs_remove_file(const char *path);
 
   int duckfs_move_file(const char *source, const char *target);
+
+  char *duckfs_glob(int id, const char *pattern);
 }
 
 // Compile-time checks to ensure our macro values match DuckDB's constants
@@ -127,7 +129,25 @@ namespace duckdb {
     }
 
     vector<OpenFileInfo> Glob(const string &path, FileOpener *opener) override {
-      return {path}; // FIXME
+      char *result = duckfs_glob(this->id, path.c_str());
+      if (!result) {
+        // No glob characters in path; return as-is.
+        return {path};
+      }
+
+      vector<OpenFileInfo> files;
+      char *pos = result;
+      while (*pos) {
+        char *next = strchr(pos, '\n');
+        if (!next) {
+          files.emplace_back(string(pos));
+          break;
+        }
+        files.emplace_back(string(pos, next - pos));
+        pos = next + 1;
+      }
+      free(result);
+      return files;
     }
 
     unique_ptr<FileHandle> OpenFile(const string &path, FileOpenFlags flags, optional_ptr<FileOpener> opener) override {

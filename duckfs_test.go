@@ -1,12 +1,14 @@
 package duckfs_test
 
 import (
+	"context"
 	"database/sql"
 	"database/sql/driver"
 	"fmt"
 	"io/fs"
 	"log"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/duckdb/duckdb-go/v2"
@@ -366,4 +368,217 @@ func TestRelativeTempDirectory(t *testing.T) {
 
 	// Verify .tmp directory may exist in current directory (DuckDB creates it lazily)
 	// The important thing is that the query completed successfully with relative temp dir
+}
+
+func ExampleNew() {
+	c, err := duckdb.NewConnector("", nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer c.Close()
+
+	f, err := duckfs.New(c, newTestFS())
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+
+	db := sql.OpenDB(f)
+	defer db.Close()
+
+	var name string
+	if err := db.QueryRow(
+		`SELECT instrument_name FROM read_parquet('test://testdata/example.parquet') LIMIT 1`,
+	).Scan(&name); err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println(name)
+	// Output:
+	// BTC-28DEC24-99000-C
+}
+
+func TestConnectorDatabasePointer(t *testing.T) {
+	// This test validates that the unsafe pointer cast in duckdbConnectorDatabase
+	// correctly extracts the database handle from duckdb.Connector.
+	// If the duckdb-go struct layout changes, New() will fail here.
+	c, err := duckdb.NewConnector("", func(driver.ExecerContext) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+
+	f, err := duckfs.New(c, newTestFS())
+	if err != nil {
+		t.Fatal("duckdbConnectorDatabase pointer cast likely broken: " + err.Error())
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestConcurrentConnections(t *testing.T) {
+	const n = 8
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			c, err := duckfs.Open("", nil, newTestFS())
+			if err != nil {
+				errs[i] = err
+				return
+			}
+
+			db := sql.OpenDB(c)
+			defer db.Close()
+
+			var name string
+			err = db.QueryRow(
+				`SELECT instrument_name FROM read_parquet('test://testdata/example.parquet') LIMIT 1`,
+			).Scan(&name)
+			if err != nil {
+				errs[i] = err
+			}
+		}()
+	}
+
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("goroutine %d: %v", i, err)
+		}
+	}
+}
+
+func TestCloseIdempotent(t *testing.T) {
+	c, err := duckfs.Open("", nil, newTestFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// First close should succeed.
+	if err := c.Close(); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+
+	// Second close should not panic and should be a no-op.
+	if err := c.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+}
+
+func TestQueryAfterClose(t *testing.T) {
+	c, err := duckfs.Open("", nil, newTestFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Attempting to connect after Close should fail.
+	_, err = c.Connect(context.Background())
+	if err == nil {
+		t.Error("expected error when connecting after Close, got nil")
+	}
+}
+
+func TestGlob(t *testing.T) {
+	c, err := duckfs.Open("", nil, newTestFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	db := sql.OpenDB(c)
+	defer db.Close()
+
+	// Use glob pattern to read from multiple CSV files in different directories.
+	rows, err := db.Query(`SELECT message FROM read_csv('test://testdata/folder-*/database.csv') ORDER BY message`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+
+	var messages []string
+	for rows.Next() {
+		var msg string
+		if err := rows.Scan(&msg); err != nil {
+			t.Fatal(err)
+		}
+		messages = append(messages, msg)
+	}
+
+	if len(messages) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(messages))
+	}
+
+	if messages[0] != "hello" || messages[1] != "world" {
+		t.Errorf("unexpected messages: %v", messages)
+	}
+}
+
+func TestGlobWithoutGlobFS(t *testing.T) {
+	// plainTestFS only implements fs.FS, not fs.GlobFS
+	c, err := duckfs.Open("", nil, &plainTestFS{fsys: testdata})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	db := sql.OpenDB(c)
+	defer db.Close()
+
+	// Querying with a glob pattern on a virtual path should fail
+	// because plainTestFS doesn't implement fs.GlobFS.
+	_, err = db.Query(`SELECT message FROM read_csv('test://testdata/folder-*/database.csv')`)
+	if err == nil {
+		t.Error("expected error when glob is not supported on virtual paths")
+	}
+}
+
+func TestGlobLocalFilesystem(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// Create test CSV files in the temp directory.
+	for _, name := range []string{"data-1.csv", "data-2.csv"} {
+		if err := os.WriteFile(tempDir+"/"+name, []byte("value\n"+name+"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	c, err := duckfs.Open("", nil, newTestFS())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	db := sql.OpenDB(c)
+	defer db.Close()
+
+	// Query with a glob pattern using an absolute local path.
+	rows, err := db.Query(fmt.Sprintf(`SELECT value FROM read_csv('%s/data-*.csv') ORDER BY value`, tempDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+
+	var values []string
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			t.Fatal(err)
+		}
+		values = append(values, v)
+	}
+
+	if len(values) != 2 {
+		t.Fatalf("expected 2 values, got %d", len(values))
+	}
+
+	if values[0] != "data-1.csv" || values[1] != "data-2.csv" {
+		t.Errorf("unexpected values: %v", values)
+	}
 }

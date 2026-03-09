@@ -1,5 +1,35 @@
 // Package duckfs implements a DuckDB filesystem interface using the Go
-// standard library's filesystem interface (io/fs).
+// standard library's filesystem interface ([io/fs]).
+//
+// # Path Routing
+//
+// duckfs routes file operations based on the path format:
+//
+//   - Protocol paths (e.g., "test://data/file.parquet") are served by the
+//     registered [io/fs.FS] implementation. The full path including the
+//     protocol prefix is passed to [io/fs.FS.Open], so the FS must handle
+//     prefix stripping.
+//   - Absolute paths (e.g., "/tmp/data.parquet") bypass the virtual
+//     filesystem and are served directly by the operating system.
+//   - Relative paths are resolved against the process working directory
+//     by the OS, not the virtual filesystem.
+//   - Write operations always use the local OS filesystem, since [io/fs.FS]
+//     is a read-only interface.
+//
+// # Usage
+//
+// Create a [Connector] with [Open] for a standalone DuckDB instance, or
+// [New] to wrap an existing [github.com/duckdb/duckdb-go/v2.Connector]:
+//
+//	c, err := duckfs.Open("", nil, myFS)
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	db := sql.OpenDB(c)
+//	defer db.Close()
+//
+// The [Connector] must be explicitly closed to release resources, unless
+// passed to [database/sql.OpenDB], which takes ownership of the connector.
 package duckfs
 
 // #cgo CFLAGS:   -I${SRCDIR}/duckdb/v1.4.4/src/include
@@ -17,6 +47,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"unsafe"
@@ -231,7 +262,9 @@ func duckfs_file_close(id C.int) C.int {
 		slog.Warn("duckfs_file_close: file not found", "file", id)
 		return -1
 	}
-	f.Close()
+	if err := f.Close(); err != nil {
+		slog.Warn("duckfs_file_close: close failed", "file", id, "error", err)
+	}
 	return 0
 }
 
@@ -467,6 +500,43 @@ func duckfs_move_file(source, target *C.char) C.int {
 	return 0
 }
 
+//export duckfs_glob
+func duckfs_glob(id C.int, pattern *C.char) *C.char {
+	p := C.GoString(pattern)
+
+	// No glob characters → no expansion needed.
+	if !strings.ContainsAny(p, "*?[") {
+		return nil
+	}
+
+	// Local filesystem path (no protocol prefix) → filepath.Glob.
+	if !strings.Contains(p, "://") {
+		matches, err := filepath.Glob(p)
+		if err != nil || len(matches) == 0 {
+			return C.CString("")
+		}
+		return C.CString(strings.Join(matches, "\n"))
+	}
+
+	// Virtual path with protocol prefix.
+	fsys, ok := globalFsys.lookup(int32(id))
+	if !ok {
+		return C.CString("")
+	}
+
+	globFS, ok := fsys.(fs.GlobFS)
+	if !ok {
+		slog.Warn("duckfs_glob: fs.FS does not implement fs.GlobFS; glob patterns on virtual paths are not supported", "pattern", p)
+		return C.CString("")
+	}
+
+	matches, err := globFS.Glob(p)
+	if err != nil || len(matches) == 0 {
+		return C.CString("")
+	}
+	return C.CString(strings.Join(matches, "\n"))
+}
+
 // Connector is a type similar to duckdb.Connector, but it manages the
 // lifecycle of a virtual filesystem installed on the underlying DuckDB
 // database.
@@ -480,25 +550,27 @@ type Connector struct {
 }
 
 func (c *Connector) Close() error {
-	var err1 error
-	var err2 error
+	runtime.SetFinalizer(c, nil)
 
-	if c.own {
-		err2 = c.conn.Close()
-	}
-
-	// As of DuckDB v1.4.1, the deregistration of a virtual file system
-	// must happen after closing the connection, or causes a segfault,
-	// likely from having the connection reference files that depended
-	// on the virtual file system that they were opened from.
+	var err error
 	c.once.Do(func() {
-		if status := C.duckfs_unregister_subsystem(duckdbConnectorDatabase(c.conn)); status != 0 {
-			err1 = fmt.Errorf("duckdb error when attempting to unregister a virtual file system: %d", status)
+		if c.own {
+			// When we own the connector, closing it shuts down the
+			// database and internally cleans up all subsystems.
+			err = c.conn.Close()
+		} else {
+			// When we don't own the connector, the database outlives
+			// this Connector, so we must explicitly unregister the
+			// filesystem subsystem. All SQL connections should be
+			// closed first, or open file handles may cause a segfault.
+			if status := C.duckfs_unregister_subsystem(duckdbConnectorDatabase(c.conn)); status != 0 {
+				err = fmt.Errorf("duckdb error when attempting to unregister a virtual file system: %d", status)
+			}
 		}
 		globalFsys.unregister(c.fsys)
 	})
 
-	return errors.Join(err1, err2)
+	return err
 }
 
 func (c *Connector) Connect(ctx context.Context) (driver.Conn, error) {
@@ -531,6 +603,17 @@ func Open(dsn string, connInitFn func(execer driver.ExecerContext) error, fsys f
 	return x, nil
 }
 
+// newConnector creates a Connector with a finalizer that logs a warning if
+// the Connector is garbage collected without being closed.
+func newConnector(conn *duckdb.Connector, fsys int32) *Connector {
+	c := &Connector{conn: conn, fsys: fsys}
+	runtime.SetFinalizer(c, func(c *Connector) {
+		slog.Warn("duckfs.Connector was garbage collected without calling Close; closing now to prevent resource leak")
+		c.Close()
+	})
+	return c
+}
+
 // New constructs a Connector that wraps the given DuckDB connector.
 //
 // The returned Connector does not take ownership of c, so the caller remains
@@ -541,7 +624,7 @@ func New(c *duckdb.Connector, fsys fs.FS) (*Connector, error) {
 		globalFsys.unregister(f)
 		return nil, fmt.Errorf("duckdb error when attempting to register a virtual file system: %d", status)
 	}
-	return &Connector{conn: c, fsys: f}, nil
+	return newConnector(c, f), nil
 }
 
 type duckdbConnector struct { // same memory layout as duckdb.Connector (https://github.com/marcboeker/go-duckdb/blob/v2.3.3/duckdb.go#L45)

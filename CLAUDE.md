@@ -10,16 +10,20 @@ Requires Go 1.24.0+ and pixi package manager.
 # Install DuckDB library
 pixi install --locked
 
-# Run tests
-CGO_ENABLED=1 \
-CGO_LDFLAGS="-L.pixi/envs/default/lib" \
-LD_LIBRARY_PATH=".pixi/envs/default/lib" \
-go test -v ./... -tags=duckdb_use_lib
+# Set environment for CGO
+export CGO_ENABLED=1
+export CGO_LDFLAGS="-L.pixi/envs/default/lib"
+export LD_LIBRARY_PATH=".pixi/envs/default/lib"
+export GOFLAGS="-tags=duckdb_use_lib"
+
+# Run tests (with race detector)
+go test -v -race ./...
 
 # Build
-CGO_ENABLED=1 \
-CGO_LDFLAGS="-L.pixi/envs/default/lib" \
-go build -tags=duckdb_use_lib
+go build ./...
+
+# Lint
+go vet ./...
 ```
 
 ## Key Files
