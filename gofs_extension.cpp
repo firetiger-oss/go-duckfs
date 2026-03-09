@@ -135,12 +135,6 @@ namespace duckdb {
         return {path};
       }
 
-      if (*result == '\0') {
-        // Glob matched nothing.
-        free(result);
-        return {};
-      }
-
       vector<OpenFileInfo> files;
       char *pos = result;
       while (*pos) {
