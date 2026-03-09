@@ -135,25 +135,24 @@ namespace duckdb {
         return {path};
       }
 
-      string results(result);
-      free(result);
-
-      if (results.empty()) {
+      if (*result == '\0') {
         // Glob matched nothing.
+        free(result);
         return {};
       }
 
       vector<OpenFileInfo> files;
-      size_t pos = 0;
-      while (pos < results.size()) {
-        auto next = results.find('\n', pos);
-        if (next == string::npos) {
-          files.push_back(results.substr(pos));
+      char *pos = result;
+      while (*pos) {
+        char *next = strchr(pos, '\n');
+        if (!next) {
+          files.emplace_back(string(pos));
           break;
         }
-        files.push_back(results.substr(pos, next - pos));
+        files.emplace_back(string(pos, next - pos));
         pos = next + 1;
       }
+      free(result);
       return files;
     }
 
