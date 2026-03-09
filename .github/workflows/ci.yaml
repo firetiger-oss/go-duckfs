@@ -32,10 +32,18 @@ jobs:
       - name: Install duckdb with pixi
         run: pixi install --locked
 
+      - name: Run go vet
+        env:
+          CGO_ENABLED: "1"
+          CGO_LDFLAGS: "-L${{ github.workspace }}/.pixi/envs/default/lib"
+          LD_LIBRARY_PATH: "${{ github.workspace }}/.pixi/envs/default/lib"
+          GOFLAGS: "-tags=duckdb_use_lib"
+        run: go vet ./...
+
       - name: Run tests
         env:
           CGO_ENABLED: "1"
           CGO_LDFLAGS: "-L${{ github.workspace }}/.pixi/envs/default/lib"
           LD_LIBRARY_PATH: "${{ github.workspace }}/.pixi/envs/default/lib"
           GOFLAGS: "-tags=duckdb_use_lib"
-        run: go test -v ./...
+        run: go test -v -race ./...
