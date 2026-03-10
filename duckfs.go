@@ -32,8 +32,8 @@
 // passed to [database/sql.OpenDB], which takes ownership of the connector.
 package duckfs
 
-// #cgo CFLAGS:   -I${SRCDIR}/duckdb/v1.4.4/src/include
-// #cgo CXXFLAGS: -I${SRCDIR}/duckdb/v1.4.4/src/include -std=c++17
+// #cgo CFLAGS:   -I${SRCDIR}/duckdb/v1.5.0/src/include
+// #cgo CXXFLAGS: -I${SRCDIR}/duckdb/v1.5.0/src/include -std=c++17
 // #include <gofs_extension.hpp>
 import "C"
 
