@@ -1,7 +1,7 @@
 # ==============================================================================
 # This Dockerfile showcases how to build the extension using the Pixi package
-# manager, and dynmically linking against libduckdb. Dynamic linking is
-# necessary because the static build process used by the Go bindings we missing
+# manager, and dynamically linking against libduckdb. Dynamic linking is
+# necessary because the static build process used by the Go bindings is missing
 # the file system symbols that the extension depends on.
 #
 # https://github.com/marcboeker/go-duckdb?tab=readme-ov-file#linking-a-dynamic-library
@@ -47,7 +47,7 @@ RUN go build -x -tags=duckdb_use_lib
 # Step 2: test the extension
 # --------------------------
 FROM build AS test
-# When exectuing tests, the test program is dynamically linked against
+# When executing tests, the test program is dynamically linked against
 # libduckdb, but we need to instruct the linker where to find it, which is why
 # we set the LD_LIBRARY_PATH environment variable to the location where pixi has
 # installed libduckdb.
