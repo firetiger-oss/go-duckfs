@@ -166,7 +166,7 @@ namespace duckdb {
 	// usually indicating that the file does not exist. In several places,
 	// it causes DuckDB to throw an exception indicating that a null pointer
 	// was being dereferenced (e.g., when reading parquet files). These
-	// errors are handled propertly in the C and Go bindings, and reported
+	// errors are handled properly in the C and Go bindings, and reported
 	// to the callers as Go errors.
 	return nullptr;
       }
