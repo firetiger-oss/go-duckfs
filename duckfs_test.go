@@ -216,7 +216,7 @@ func TestSpillToDisk(t *testing.T) {
 	}
 
 	// Set memory limit low enough to force spilling
-	if _, err := db.Exec("SET memory_limit=52428800"); err != nil {
+	if _, err := db.Exec("SET memory_limit='100MB'"); err != nil {
 		t.Fatalf("failed to set memory limit: %v", err)
 	}
 
@@ -336,7 +336,7 @@ func TestRelativeTempDirectory(t *testing.T) {
 	}
 
 	// Create a large table with ORDER BY to trigger spilling to temp directory
-	if _, err := db.Exec("SET memory_limit=52428800"); err != nil {
+	if _, err := db.Exec("SET memory_limit='100MB'"); err != nil {
 		t.Fatalf("failed to set memory limit: %v", err)
 	}
 
