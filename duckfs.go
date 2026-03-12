@@ -627,7 +627,7 @@ func New(c *duckdb.Connector, fsys fs.FS) (*Connector, error) {
 	return newConnector(c, f), nil
 }
 
-type duckdbConnector struct { // same memory layout as duckdb.Connector (https://github.com/marcboeker/go-duckdb/blob/v2.3.3/duckdb.go#L45)
+type duckdbConnector struct { // same memory layout as duckdb.Connector (https://github.com/duckdb/duckdb-go/blob/v2.10500.0/duckdb.go#L45)
 	database mapping.Database
 }
 
