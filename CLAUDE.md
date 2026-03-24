@@ -30,8 +30,8 @@ go vet ./...
 
 - `duckfs.go` - Main implementation with CGO exports and public API
 - `gofs_extension.cpp` / `gofs_extension.hpp` - C++ DuckDB filesystem bridge
-- `duckdb/v1.5.0/src/include/` - Vendored DuckDB headers
-- `pixi.toml` - DuckDB version configuration (libduckdb == 1.5.0)
+- `duckdb/v1.5.1/src/include/` - Vendored DuckDB headers
+- `pixi.toml` - DuckDB version configuration (libduckdb == 1.5.1)
 - `testdata/` - Embedded test data files
 
 ## Public API
