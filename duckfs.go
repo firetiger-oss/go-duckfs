@@ -32,8 +32,8 @@
 // passed to [database/sql.OpenDB], which takes ownership of the connector.
 package duckfs
 
-// #cgo CFLAGS:   -I${SRCDIR}/duckdb/v1.5.0/src/include
-// #cgo CXXFLAGS: -I${SRCDIR}/duckdb/v1.5.0/src/include -std=c++17
+// #cgo CFLAGS:   -I${SRCDIR}/duckdb/v1.5.1/src/include
+// #cgo CXXFLAGS: -I${SRCDIR}/duckdb/v1.5.1/src/include -std=c++17
 // #include <gofs_extension.hpp>
 import "C"
 
@@ -627,7 +627,7 @@ func New(c *duckdb.Connector, fsys fs.FS) (*Connector, error) {
 	return newConnector(c, f), nil
 }
 
-type duckdbConnector struct { // same memory layout as duckdb.Connector (https://github.com/duckdb/duckdb-go/blob/v2.10500.0/duckdb.go#L45)
+type duckdbConnector struct { // same memory layout as duckdb.Connector (https://github.com/duckdb/duckdb-go/blob/v2.10501.0/duckdb.go#L45)
 	database mapping.Database
 }
 
