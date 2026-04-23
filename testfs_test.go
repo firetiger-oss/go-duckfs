@@ -37,7 +37,8 @@ func newTestFS() *testFS {
 }
 
 // plainTestFS wraps an fs.FS but does NOT implement fs.GlobFS.
-// Used to test behavior when glob is not supported on virtual paths.
+// Used to test that duckfs_glob falls back to fs.Glob's ReadDir walker
+// when the FS does not implement the optional GlobFS interface.
 type plainTestFS struct {
 	fsys fs.FS
 }
