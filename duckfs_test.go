@@ -523,7 +523,10 @@ func TestGlob(t *testing.T) {
 }
 
 func TestGlobWithoutGlobFS(t *testing.T) {
-	// plainTestFS only implements fs.FS, not fs.GlobFS
+	// plainTestFS only implements fs.FS, not fs.GlobFS.
+	// duckfs_glob falls back to fs.Glob, but fs.Glob's ReadDir walker
+	// cannot preserve the "test://" double-slash protocol prefix
+	// (path.Join collapses it to "test:/"), so no matches are found.
 	c, err := duckfs.Open("", nil, &plainTestFS{fsys: testdata})
 	if err != nil {
 		t.Fatal(err)
@@ -532,11 +535,9 @@ func TestGlobWithoutGlobFS(t *testing.T) {
 	db := sql.OpenDB(c)
 	defer db.Close()
 
-	// Querying with a glob pattern on a virtual path should fail
-	// because plainTestFS doesn't implement fs.GlobFS.
 	_, err = db.Query(`SELECT message FROM read_csv('test://testdata/folder-*/database.csv')`)
 	if err == nil {
-		t.Error("expected error when glob is not supported on virtual paths")
+		t.Error("expected error when glob fallback cannot preserve protocol prefix")
 	}
 }
 

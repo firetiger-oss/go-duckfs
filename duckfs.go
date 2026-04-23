@@ -524,13 +524,7 @@ func duckfs_glob(id C.int, pattern *C.char) *C.char {
 		return C.CString("")
 	}
 
-	globFS, ok := fsys.(fs.GlobFS)
-	if !ok {
-		slog.Warn("duckfs_glob: fs.FS does not implement fs.GlobFS; glob patterns on virtual paths are not supported", "pattern", p)
-		return C.CString("")
-	}
-
-	matches, err := globFS.Glob(p)
+	matches, err := fs.Glob(fsys, p)
 	if err != nil || len(matches) == 0 {
 		return C.CString("")
 	}
